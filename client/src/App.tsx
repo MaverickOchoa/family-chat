@@ -1,0 +1,1404 @@
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  generateIdentityKeyPair,
+  exportPrivateKey,
+  importPrivateKey,
+  encryptTextMessage,
+  decryptTextMessage,
+  encryptMediaBlob,
+  decryptMediaBlob,
+  type UserKeyPair
+} from './crypto/e2ee';
+import { KidsView } from './components/KidsView';
+import { TeensView } from './components/TeensView';
+import { AdultsView } from './components/AdultsView';
+import { InviteModal } from './components/InviteModal';
+import { ParentPinModal } from './components/ParentPinModal';
+import { FamilyPhotosVault } from './components/FamilyPhotosVault';
+import { Shield, Camera, Lock, User, Upload } from 'lucide-react';
+import { API_BASE, WS_BASE } from './config';
+
+// Universal UUID generator that works in any context (HTTP, LAN IP, older mobile browsers)
+function safeUUID(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+export function App() {
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [userKeyPair, setUserKeyPair] = useState<UserKeyPair | null>(null);
+  const [contacts, setContacts] = useState<any[]>([]);
+  const [activeContact, setActiveContact] = useState<any>(null);
+  const [messages, setMessages] = useState<any[]>([]);
+  const [childrenList, setChildrenList] = useState<any[]>([]);
+  const [currentTab, setCurrentTab] = useState<'chat' | 'photos'>('chat');
+  const [unlockedProtectedPhotos, setUnlockedProtectedPhotos] = useState<string[]>([]);
+
+  // Modals
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
+  const [pinModalTitle, setPinModalTitle] = useState('Autorización de Guardián Requerida');
+  const [pinModalDesc, setPinModalDesc] = useState('Para proteger a los menores, esta acción requiere el PIN de tus padres.');
+
+  // Auth Form State
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('register');
+  const [usernameInput, setUsernameInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const avatarFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [roleInput, setRoleInput] = useState<'guardian' | 'teen' | 'kid'>('guardian');
+  const [ageInput, setAgeInput] = useState<number>(35);
+  const [guardianUsernameInput, setGuardianUsernameInput] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  const wsRef = useRef<WebSocket | null>(null);
+
+  // Check saved session on load
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('view') === 'photos') {
+      setCurrentTab('photos');
+    }
+
+    const savedUser = localStorage.getItem('family_chat_user');
+    const savedPrivKey = localStorage.getItem('family_chat_privkey');
+    const savedPubKey = localStorage.getItem('family_chat_pubkey');
+
+    if (savedUser && savedPrivKey && savedPubKey) {
+      // Auto-migrate: If old RSA key is detected, clear it to ensure clean X25519 keys
+      if (savedPrivKey.length > 60 || savedPubKey.length > 60) {
+        localStorage.clear();
+        setCurrentUser(null);
+        setUserKeyPair(null);
+        return;
+      }
+      try {
+        const parsed = JSON.parse(savedUser);
+        setCurrentUser(parsed);
+        setUserKeyPair({
+          publicKeyBase64: savedPubKey,
+          privateKeyBase64: savedPrivKey
+        });
+      } catch (e) {
+        console.error('Failed to restore session:', e);
+      }
+    }
+  }, []);
+
+  // Sync data when currentUser & userKeyPair are ready
+  useEffect(() => {
+    if (!currentUser || !userKeyPair) return;
+
+    fetchContacts();
+    fetchMessages();
+
+    // Auto-refresh messages and contacts periodically in case WebSocket reconnects
+    const pollInterval = setInterval(() => {
+      fetchMessages();
+      fetchContacts();
+    }, 3000);
+
+    const ws = new WebSocket(WS_BASE);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: 'auth', userId: currentUser.id }));
+    };
+
+    ws.onmessage = async (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'new_message' || data.type === 'mirror_message') {
+          await handleIncomingPacket(data.message);
+        } else if (data.type === 'delete_message') {
+          setMessages((prev) => prev.filter((m) => m.id !== data.messageId));
+        } else if (data.type === 'edit_message') {
+          await handleIncomingEdit(data.message);
+        } else if (data.type === 'clear_chat') {
+          setMessages((prev) =>
+            prev.filter(
+              (m) =>
+                !(
+                  (m.fromUserId === currentUser.id && m.toUserId === data.contactId) ||
+                  (m.fromUserId === data.contactId && m.toUserId === currentUser.id)
+                )
+            )
+          );
+        }
+      } catch (err) {
+        console.error('WS parse error:', err);
+      }
+    };
+
+    return () => {
+      clearInterval(pollInterval);
+      ws.close();
+    };
+  }, [currentUser, userKeyPair]);
+
+  // Decrypt incoming message
+  const handleIncomingPacket = async (pkt: any) => {
+    if (!userKeyPair) return;
+
+    const isSender = pkt.fromUserId === currentUser.id;
+    const isMirror = pkt.mirrorUserId === currentUser.id && pkt.toUserId !== currentUser.id && pkt.fromUserId !== currentUser.id;
+    const keyToUse = isSender && pkt.encryptedForSender
+      ? pkt.encryptedForSender
+      : (isMirror && pkt.encryptedForMirror ? pkt.encryptedForMirror : pkt.encryptedForRecipient);
+
+    let decryptedText = '';
+    let decryptedMediaUrl: string | undefined = undefined;
+
+    if (pkt.type === 'text') {
+      decryptedText = await decryptTextMessage(
+        pkt.ciphertext || pkt.encryptedForRecipient,
+        pkt.iv,
+        keyToUse,
+        pkt.senderEphemeralKey || '',
+        userKeyPair.privateKeyBase64
+      );
+    } else if (pkt.type === 'image' && pkt.mediaUrl) {
+      try {
+        decryptedMediaUrl = await decryptMediaBlob(
+          `${API_BASE}${pkt.mediaUrl}`,
+          keyToUse,
+          pkt.iv,
+          pkt.senderEphemeralKey || '',
+          userKeyPair.privateKeyBase64,
+          'image/jpeg'
+        );
+      } catch (e) {
+        console.warn('Failed to decrypt image:', e);
+      }
+    } else if (pkt.type === 'audio' && pkt.mediaUrl) {
+      try {
+        decryptedMediaUrl = await decryptMediaBlob(
+          `${API_BASE}${pkt.mediaUrl}`,
+          keyToUse,
+          pkt.iv,
+          pkt.senderEphemeralKey || '',
+          userKeyPair.privateKeyBase64,
+          'audio/webm'
+        );
+      } catch (e) {
+        console.warn('Failed to decrypt audio:', e);
+      }
+    }
+
+    const processedMsg = {
+      ...pkt,
+      decryptedText,
+      decryptedMediaUrl
+    };
+
+    setMessages((prev) => {
+      if (prev.some((m) => m.id === pkt.id)) return prev;
+      return [...prev, processedMsg];
+    });
+  };
+
+  const handleIncomingEdit = async (pkt: any) => {
+    if (!userKeyPair) return;
+    const isSender = pkt.fromUserId === currentUser.id;
+    const isMirror = pkt.mirrorUserId === currentUser.id && pkt.toUserId !== currentUser.id && pkt.fromUserId !== currentUser.id;
+    const keyToUse = isSender && pkt.encryptedForSender
+      ? pkt.encryptedForSender
+      : (isMirror && pkt.encryptedForMirror ? pkt.encryptedForMirror : pkt.encryptedForRecipient);
+
+    let decryptedText = '';
+    if (pkt.type === 'text') {
+      try {
+        decryptedText = await decryptTextMessage(
+          pkt.ciphertext || pkt.encryptedForRecipient,
+          pkt.iv,
+          keyToUse,
+          pkt.senderEphemeralKey || '',
+          userKeyPair.privateKeyBase64
+        );
+      } catch (e) {
+        decryptedText = '🔒 [Mensaje editado]';
+      }
+    }
+
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === pkt.id
+          ? {
+              ...m,
+              ...pkt,
+              decryptedText,
+              isEdited: true
+            }
+          : m
+      )
+    );
+  };
+
+  const fetchContacts = async () => {
+    if (!currentUser) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/contacts/${currentUser.id}`);
+      const data = await res.json();
+      setContacts(data);
+
+      if (currentUser.role === 'guardian') {
+        const kids = data.filter((c: any) => c.guardianId === currentUser.id);
+        setChildrenList(kids);
+      }
+    } catch (e) {
+      console.error('Error fetching contacts:', e);
+    }
+  };
+
+  const fetchMessages = async () => {
+    if (!currentUser || !userKeyPair) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/messages/${currentUser.id}`);
+      const rawMessages: any[] = await res.json();
+
+      const decryptedList = await Promise.all(
+        rawMessages.map(async (pkt) => {
+          const isSender = pkt.fromUserId === currentUser.id;
+          const isMirror = pkt.mirrorUserId === currentUser.id && pkt.toUserId !== currentUser.id && pkt.fromUserId !== currentUser.id;
+          const keyToUse = isSender && pkt.encryptedForSender
+            ? pkt.encryptedForSender
+            : (isMirror && pkt.encryptedForMirror ? pkt.encryptedForMirror : pkt.encryptedForRecipient);
+
+          let decryptedText = '';
+          let decryptedMediaUrl: string | undefined = undefined;
+
+          if (pkt.type === 'text') {
+            decryptedText = await decryptTextMessage(
+              pkt.ciphertext || pkt.encryptedForRecipient,
+              pkt.iv,
+              keyToUse,
+              pkt.senderEphemeralKey || '',
+              userKeyPair.privateKeyBase64
+            );
+          } else if (pkt.type === 'image' && pkt.mediaUrl) {
+            try {
+              decryptedMediaUrl = await decryptMediaBlob(
+                `${API_BASE}${pkt.mediaUrl}`,
+                keyToUse,
+                pkt.iv,
+                pkt.senderEphemeralKey || '',
+                userKeyPair.privateKeyBase64,
+                'image/jpeg'
+              );
+            } catch (e) {
+              console.warn('Image decryption error:', e);
+            }
+          } else if (pkt.type === 'audio' && pkt.mediaUrl) {
+            try {
+              decryptedMediaUrl = await decryptMediaBlob(
+                `${API_BASE}${pkt.mediaUrl}`,
+                keyToUse,
+                pkt.iv,
+                pkt.senderEphemeralKey || '',
+                userKeyPair.privateKeyBase64,
+                'audio/webm'
+              );
+            } catch (e) {
+              console.warn('Audio decryption error:', e);
+            }
+          }
+
+          return {
+            ...pkt,
+            decryptedText,
+            decryptedMediaUrl
+          };
+        })
+      );
+
+      setMessages(decryptedList);
+    } catch (e) {
+      console.error('Error syncing message history:', e);
+    }
+  };
+
+  // --- ACTIONS ---
+
+  const handleSendMessage = async (text: string) => {
+    if (!activeContact || !userKeyPair || !currentUser) return;
+
+    try {
+      let mirrorPublicKey: string | undefined = undefined;
+      let mirrorUserId: string | undefined = undefined;
+
+      // Mirror view is ONLY needed if chatting with someone OTHER than the guardian
+      if (currentUser.role === 'kid' && currentUser.age < 10 && currentUser.guardianId) {
+        if (activeContact.id !== currentUser.guardianId) {
+          mirrorUserId = currentUser.guardianId;
+          const gRes = await fetch(`${API_BASE}/api/users/${currentUser.guardianId}`);
+          const gUser = await gRes.json();
+          if (gUser.publicKey && gUser.publicKey.length < 60) {
+            mirrorPublicKey = gUser.publicKey;
+          }
+        }
+      } else if (activeContact.role === 'kid' && activeContact.age < 10 && activeContact.guardianId) {
+        if (currentUser.id !== activeContact.guardianId) {
+          mirrorUserId = activeContact.guardianId;
+          const gRes = await fetch(`${API_BASE}/api/users/${activeContact.guardianId}`);
+          const gUser = await gRes.json();
+          if (gUser.publicKey && gUser.publicKey.length < 60) {
+            mirrorPublicKey = gUser.publicKey;
+          }
+        }
+      }
+
+      let recipientPubKey = activeContact.publicKey;
+      try {
+        const uRes = await fetch(`${API_BASE}/api/users/${activeContact.id}`);
+        const uData = await uRes.json();
+        if (uData.publicKey && uData.publicKey.length < 60) {
+          recipientPubKey = uData.publicKey;
+        }
+      } catch (e) {}
+
+      const encrypted = await encryptTextMessage(
+        text,
+        recipientPubKey,
+        mirrorPublicKey,
+        userKeyPair.publicKeyBase64
+      );
+
+      const packet = {
+        id: safeUUID(),
+        fromUserId: currentUser.id,
+        toUserId: activeContact.id,
+        mirrorUserId,
+        ciphertext: encrypted.ciphertext,
+        encryptedForSender: encrypted.encryptedKeyForSender,
+        encryptedForRecipient: encrypted.encryptedKeyForRecipient,
+        encryptedForMirror: encrypted.encryptedKeyForMirror,
+        senderEphemeralKey: encrypted.senderEphemeralKey,
+        iv: encrypted.iv,
+        type: 'text' as const,
+        timestamp: Date.now(),
+        status: 'sent' as const
+      };
+
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({
+            type: 'send_message',
+            userId: currentUser.id,
+            message: packet
+          })
+        );
+      } else {
+        await fetch(`${API_BASE}/api/messages/send`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: packet })
+        });
+      }
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          ...packet,
+          decryptedText: text
+        }
+      ]);
+    } catch (err: any) {
+      console.error('Error sending message:', err);
+      alert(`Error enviando mensaje: ${err.message || err}`);
+    }
+  };
+
+  const handleSendAudio = async (audioBlob: Blob, duration: number) => {
+    if (!activeContact || !userKeyPair || !currentUser) return;
+
+    try {
+      let mirrorPublicKey: string | undefined = undefined;
+      let mirrorUserId: string | undefined = undefined;
+
+      if (currentUser.role === 'kid' && currentUser.age < 10 && currentUser.guardianId && activeContact.id !== currentUser.guardianId) {
+        mirrorUserId = currentUser.guardianId;
+        const gRes = await fetch(`${API_BASE}/api/users/${currentUser.guardianId}`);
+        const gUser = await gRes.json();
+        if (gUser.publicKey && gUser.publicKey.length < 60) mirrorPublicKey = gUser.publicKey;
+      } else if (activeContact.role === 'kid' && activeContact.age < 10 && activeContact.guardianId && currentUser.id !== activeContact.guardianId) {
+        mirrorUserId = activeContact.guardianId;
+        const gRes = await fetch(`${API_BASE}/api/users/${activeContact.guardianId}`);
+        const gUser = await gRes.json();
+        if (gUser.publicKey && gUser.publicKey.length < 60) mirrorPublicKey = gUser.publicKey;
+      }
+
+      let recipientPubKey = activeContact.publicKey;
+      try {
+        const uRes = await fetch(`${API_BASE}/api/users/${activeContact.id}`);
+        const uData = await uRes.json();
+        if (uData.publicKey && uData.publicKey.length < 60) {
+          recipientPubKey = uData.publicKey;
+        }
+      } catch (e) {}
+
+      const enc = await encryptMediaBlob(
+        audioBlob,
+        recipientPubKey,
+        mirrorPublicKey,
+        userKeyPair.publicKeyBase64
+      );
+
+      const formData = new FormData();
+      formData.append('blob', enc.encryptedBlob, 'encrypted_voice.bin');
+
+      const uploadRes = await fetch(`${API_BASE}/api/media/upload`, {
+        method: 'POST',
+        body: formData
+      });
+      const uploadData = await uploadRes.json();
+
+      const packet = {
+        id: safeUUID(),
+        fromUserId: currentUser.id,
+        toUserId: activeContact.id,
+        mirrorUserId,
+        encryptedForSender: enc.encryptedKeyForSender,
+        encryptedForRecipient: enc.encryptedKeyForRecipient,
+        encryptedForMirror: enc.encryptedKeyForMirror,
+        senderEphemeralKey: enc.senderEphemeralKey,
+        iv: enc.iv,
+        type: 'audio' as const,
+        mediaUrl: uploadData.mediaUrl,
+        mediaDuration: duration,
+        timestamp: Date.now(),
+        status: 'sent' as const
+      };
+
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({
+            type: 'send_message',
+            userId: currentUser.id,
+            message: packet
+          })
+        );
+      } else {
+        await fetch(`${API_BASE}/api/messages/send`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: packet })
+        });
+      }
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          ...packet,
+          decryptedMediaUrl: URL.createObjectURL(audioBlob)
+        }
+      ]);
+    } catch (err: any) {
+      console.error('Error sending audio:', err);
+      alert(`Error enviando nota de voz: ${err.message || err}`);
+    }
+  };
+
+  const handleSendPhoto = async (photoBlob: Blob, isProtected: boolean = false) => {
+    if (!activeContact || !userKeyPair || !currentUser) return;
+
+    try {
+      let mirrorPublicKey: string | undefined = undefined;
+      let mirrorUserId: string | undefined = undefined;
+
+      if (currentUser.role === 'kid' && currentUser.age < 10 && currentUser.guardianId && activeContact.id !== currentUser.guardianId) {
+        mirrorUserId = currentUser.guardianId;
+        const gRes = await fetch(`${API_BASE}/api/users/${currentUser.guardianId}`);
+        const gUser = await gRes.json();
+        if (gUser.publicKey && gUser.publicKey.length < 60) mirrorPublicKey = gUser.publicKey;
+      } else if (activeContact.role === 'kid' && activeContact.age < 10 && activeContact.guardianId && currentUser.id !== activeContact.guardianId) {
+        mirrorUserId = activeContact.guardianId;
+        const gRes = await fetch(`${API_BASE}/api/users/${activeContact.guardianId}`);
+        const gUser = await gRes.json();
+        if (gUser.publicKey && gUser.publicKey.length < 60) mirrorPublicKey = gUser.publicKey;
+      }
+
+      let recipientPubKey = activeContact.publicKey;
+      try {
+        const uRes = await fetch(`${API_BASE}/api/users/${activeContact.id}`);
+        const uData = await uRes.json();
+        if (uData.publicKey && uData.publicKey.length < 60) {
+          recipientPubKey = uData.publicKey;
+        }
+      } catch (e) {}
+
+      const enc = await encryptMediaBlob(
+        photoBlob,
+        recipientPubKey,
+        mirrorPublicKey,
+        userKeyPair.publicKeyBase64
+      );
+
+      const formData = new FormData();
+      formData.append('blob', enc.encryptedBlob, 'encrypted_photo.bin');
+
+      const uploadRes = await fetch(`${API_BASE}/api/media/upload`, {
+        method: 'POST',
+        body: formData
+      });
+      const uploadData = await uploadRes.json();
+
+      const packet = {
+        id: safeUUID(),
+        fromUserId: currentUser.id,
+        toUserId: activeContact.id,
+        mirrorUserId,
+        encryptedForSender: enc.encryptedKeyForSender,
+        encryptedForRecipient: enc.encryptedKeyForRecipient,
+        encryptedForMirror: enc.encryptedKeyForMirror,
+        senderEphemeralKey: enc.senderEphemeralKey,
+        iv: enc.iv,
+        type: 'image' as const,
+        mediaUrl: uploadData.mediaUrl,
+        timestamp: Date.now(),
+        status: 'sent' as const,
+        isProtected: !!isProtected
+      };
+
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({
+            type: 'send_message',
+            userId: currentUser.id,
+            message: packet
+          })
+        );
+      } else {
+        await fetch(`${API_BASE}/api/messages/send`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: packet })
+        });
+      }
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          ...packet,
+          decryptedMediaUrl: URL.createObjectURL(photoBlob),
+          isProtected: !!isProtected
+        }
+      ]);
+    } catch (err: any) {
+      console.error('Error sending photo:', err);
+      alert(`Error enviando foto: ${err.message || err}`);
+    }
+  };
+
+  const isMinor = currentUser?.role === 'kid' || currentUser?.role === 'teen';
+
+  const executeWithGuardianPin = (action: () => void, title?: string, description?: string) => {
+    if (isMinor) {
+      setPinModalTitle(title || 'Autorización de Guardián Requerida');
+      setPinModalDesc(description || 'Para proteger a los menores, esta acción requiere el PIN de tus padres.');
+      setPendingAction(() => action);
+      setShowPinModal(true);
+    } else {
+      action();
+    }
+  };
+
+  const executeWithPinPrompt = (action: () => void, title?: string, description?: string, forcePin: boolean = false) => {
+    if (isMinor || forcePin) {
+      setPinModalTitle(title || 'Autorización de Seguridad Requerida');
+      setPinModalDesc(description || 'Esta acción requiere el PIN de seguridad.');
+      setPendingAction(() => action);
+      setShowPinModal(true);
+    } else {
+      action();
+    }
+  };
+
+  const handleUnlockProtectedPhoto = (msgId: string) => {
+    executeWithPinPrompt(
+      () => {
+        setUnlockedProtectedPhotos((prev) => [...prev, msgId]);
+      },
+      'Desbloquear Foto Protegida',
+      'Ingresa el PIN de Guardián (1234) para ver esta foto sensible o documento familiar.',
+      true
+    );
+  };
+
+  const handleDeleteChatPhotos = async (
+    contactId: string,
+    mode: 'for_me' | 'for_everyone' = 'for_me',
+    guardianAuthorized: boolean = false
+  ) => {
+    if (isMinor && !guardianAuthorized) {
+      executeWithGuardianPin(
+        () => handleDeleteChatPhotos(contactId, mode, true),
+        'Autorización para Vaciar Fotos',
+        'En cuentas de menores, vaciar las fotos del chat requiere el PIN de tus padres.'
+      );
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/api/messages/delete-photos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: currentUser.id,
+          contactId,
+          requestedByUserId: currentUser.id,
+          mode,
+          guardianAuthorized
+        })
+      });
+      const data = await res.json();
+      if (data.success && data.deletedIds) {
+        const deletedSet = new Set(data.deletedIds);
+        setMessages((prev) => prev.filter((m) => !deletedSet.has(m.id)));
+      } else if (data.error) {
+        alert(data.error);
+      }
+    } catch (e: any) {
+      alert('Error vaciando fotos de la conversación.');
+    }
+  };
+
+  const handleDeleteMessage = async (
+    msgId: string,
+    mode: 'for_me' | 'for_everyone' = 'for_everyone',
+    guardianAuthorized: boolean = false
+  ) => {
+    if (isMinor && !guardianAuthorized) {
+      executeWithGuardianPin(
+        () => handleDeleteMessage(msgId, mode, true),
+        'Autorización para Eliminar Mensaje',
+        'En cuentas de menores, eliminar mensajes (para ti o para todos) requiere el PIN de guardián.'
+      );
+      return;
+    }
+
+    try {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({
+            type: 'delete_message',
+            messageId: msgId,
+            mode,
+            guardianAuthorized
+          })
+        );
+      }
+
+      const res = await fetch(`${API_BASE}/api/messages/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messageId: msgId,
+          requestedByUserId: currentUser.id,
+          mode,
+          guardianAuthorized
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMessages((prev) => prev.filter((m) => m.id !== msgId));
+      } else {
+        alert(data.error);
+      }
+    } catch (e: any) {
+      alert('Error eliminando mensaje.');
+    }
+  };
+
+  const handleEditMessage = async (
+    msgId: string,
+    newText: string,
+    guardianAuthorized: boolean = false
+  ) => {
+    if (isMinor && !guardianAuthorized) {
+      executeWithGuardianPin(
+        () => handleEditMessage(msgId, newText, true),
+        'Autorización para Editar Mensaje',
+        'En cuentas de menores, modificar mensajes enviados requiere el PIN de tus padres.'
+      );
+      return;
+    }
+
+    if (!userKeyPair || !currentUser) return;
+
+    try {
+      const msg = messages.find((m) => m.id === msgId);
+      const recipientId = msg?.toUserId === currentUser.id ? msg.fromUserId : (msg?.toUserId || activeContact?.id);
+      if (!recipientId) return;
+
+      let recipientPubKey = activeContact?.publicKey;
+      let mirrorPubKey: string | undefined = undefined;
+
+      try {
+        const uRes = await fetch(`${API_BASE}/api/users/${recipientId}`);
+        const uData = await uRes.json();
+        if (uData.publicKey && uData.publicKey.length < 60) {
+          recipientPubKey = uData.publicKey;
+        }
+        if (uData.role === 'kid' && uData.guardianId) {
+          const gRes = await fetch(`${API_BASE}/api/users/${uData.guardianId}`);
+          const gData = await gRes.json();
+          if (gData.publicKey && gData.publicKey.length < 60) mirrorPubKey = gData.publicKey;
+        }
+      } catch (e) {}
+
+      if (currentUser.role === 'kid' && currentUser.guardianId) {
+        try {
+          const gRes = await fetch(`${API_BASE}/api/users/${currentUser.guardianId}`);
+          const gData = await gRes.json();
+          if (gData.publicKey && gData.publicKey.length < 60) mirrorPubKey = gData.publicKey;
+        } catch (e) {}
+      }
+
+      const enc = await encryptTextMessage(
+        newText,
+        recipientPubKey || userKeyPair.publicKeyBase64,
+        mirrorPubKey,
+        userKeyPair.publicKeyBase64
+      );
+
+      const updatedFields = {
+        ciphertext: enc.ciphertext,
+        encryptedForSender: enc.encryptedKeyForSender,
+        encryptedForRecipient: enc.encryptedKeyForRecipient,
+        encryptedForMirror: enc.encryptedKeyForMirror,
+        senderEphemeralKey: enc.senderEphemeralKey,
+        iv: enc.iv
+      };
+
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({
+            type: 'edit_message',
+            messageId: msgId,
+            message: updatedFields,
+            guardianAuthorized
+          })
+        );
+      }
+
+      const res = await fetch(`${API_BASE}/api/messages/edit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messageId: msgId,
+          updatedFields,
+          requestedByUserId: currentUser.id,
+          guardianAuthorized
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === msgId
+              ? {
+                  ...m,
+                  ...updatedFields,
+                  decryptedText: newText,
+                  isEdited: true
+                }
+              : m
+          )
+        );
+      } else {
+        alert(data.error);
+      }
+    } catch (e: any) {
+      alert(`Error editando mensaje: ${e.message || e}`);
+    }
+  };
+
+  const handleClearChat = async (
+    contactId: string,
+    mode: 'for_me' | 'for_everyone' = 'for_me',
+    guardianAuthorized: boolean = false
+  ) => {
+    if (isMinor && !guardianAuthorized) {
+      executeWithGuardianPin(
+        () => handleClearChat(contactId, mode, true),
+        'Autorización para Vaciar Conversación',
+        'En cuentas de menores, vaciar o limpiar el chat requiere el PIN de tus padres.'
+      );
+      return;
+    }
+
+    try {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({
+            type: 'clear_chat',
+            contactId,
+            mode,
+            guardianAuthorized
+          })
+        );
+      }
+
+      const res = await fetch(`${API_BASE}/api/messages/clear`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: currentUser.id,
+          contactId,
+          requestedByUserId: currentUser.id,
+          mode,
+          guardianAuthorized
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMessages((prev) =>
+          prev.filter(
+            (m) =>
+              !(
+                (m.fromUserId === currentUser.id && m.toUserId === contactId) ||
+                (m.fromUserId === contactId && m.toUserId === currentUser.id)
+              )
+          )
+        );
+      } else {
+        alert(data.error);
+      }
+    } catch (e: any) {
+      alert('Error limpiando conversación.');
+    }
+  };
+
+  // --- AUTHENTICATION ---
+
+  const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new window.Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const maxDim = 160;
+        let w = img.width;
+        let h = img.height;
+        if (w > h) {
+          if (w > maxDim) {
+            h = Math.round((h * maxDim) / w);
+            w = maxDim;
+          }
+        } else {
+          if (h > maxDim) {
+            w = Math.round((w * maxDim) / h);
+            h = maxDim;
+          }
+        }
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, w, h);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+          setAvatarPreview(dataUrl);
+        }
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    setAuthError(null);
+
+    try {
+      if (authMode === 'register') {
+        if (!passwordInput.trim()) {
+          throw new Error('Por favor define una contraseña para proteger tu cuenta.');
+        }
+
+        const keyPair = await generateIdentityKeyPair();
+
+        let guardianId: string | undefined = undefined;
+        if ((roleInput === 'kid' || roleInput === 'teen') && guardianUsernameInput.trim()) {
+          const gRes = await fetch(`${API_BASE}/api/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: guardianUsernameInput.trim() })
+          });
+          const gData = await gRes.json();
+          if (!gData.success) {
+            throw new Error(`El usuario guardián @${guardianUsernameInput} no existe.`);
+          }
+          guardianId = gData.user.id;
+        }
+
+        const res = await fetch(`${API_BASE}/api/auth/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: usernameInput.trim(),
+            password: passwordInput.trim(),
+            role: roleInput,
+            age: ageInput,
+            guardianId,
+            publicKey: keyPair.publicKeyBase64,
+            avatar: avatarPreview || undefined
+          })
+        });
+
+        const data = await res.json();
+        if (!data.success) {
+          throw new Error(data.error);
+        }
+
+        localStorage.setItem('family_chat_user', JSON.stringify(data.user));
+        localStorage.setItem('family_chat_privkey', keyPair.privateKeyBase64);
+        localStorage.setItem('family_chat_pubkey', keyPair.publicKeyBase64);
+
+        setCurrentUser(data.user);
+        setUserKeyPair(keyPair);
+      } else {
+        let keyPair: UserKeyPair;
+        const savedPriv = localStorage.getItem('family_chat_privkey');
+        if (savedPriv && savedPriv.length <= 60) {
+          const savedPub = localStorage.getItem('family_chat_pubkey');
+          keyPair = {
+            publicKeyBase64: savedPub || '',
+            privateKeyBase64: savedPriv
+          };
+        } else {
+          keyPair = await generateIdentityKeyPair();
+          localStorage.setItem('family_chat_privkey', keyPair.privateKeyBase64);
+        }
+
+        const res = await fetch(`${API_BASE}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: usernameInput.trim(),
+            password: passwordInput.trim() || undefined,
+            publicKey: keyPair.publicKeyBase64
+          })
+        });
+        const data = await res.json();
+        if (!data.success) {
+          throw new Error(data.error);
+        }
+
+        localStorage.setItem('family_chat_user', JSON.stringify(data.user));
+        localStorage.setItem('family_chat_pubkey', data.user.publicKey);
+
+        setCurrentUser(data.user);
+        setUserKeyPair({
+          publicKeyBase64: data.user.publicKey,
+          privateKeyBase64: keyPair.privateKeyBase64
+        });
+      }
+    } catch (err: any) {
+      setAuthError(err.message || 'Error de autenticación.');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('family_chat_user');
+    localStorage.removeItem('family_chat_privkey');
+    localStorage.removeItem('family_chat_pubkey');
+    setCurrentUser(null);
+    setUserKeyPair(null);
+    setActiveContact(null);
+    setMessages([]);
+    setPasswordInput('');
+    setAvatarPreview(null);
+  };
+
+  const activeChatMessages = messages.filter(
+    (m) =>
+      (m.fromUserId === currentUser?.id && m.toUserId === activeContact?.id) ||
+      (m.fromUserId === activeContact?.id && m.toUserId === currentUser?.id)
+  );
+
+  const mirrorMessages = messages.filter(
+    (m) => m.mirrorUserId === currentUser?.id && m.fromUserId !== currentUser?.id && m.toUserId !== currentUser?.id
+  );
+
+  if (!currentUser) {
+    const defaultAvatarUrl = `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(usernameInput.trim() || 'Familiar')}`;
+    const displayAvatar = avatarPreview || defaultAvatarUrl;
+
+    return (
+      <div className="min-h-screen min-h-[100dvh] bg-slate-950 text-white flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl">
+          <div className="text-center mb-6">
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 mb-3 shadow-lg">
+              <Shield className="w-8 h-8" />
+            </div>
+            <h1 className="text-2xl font-black tracking-tight text-white">Plataforma Familiar Segura</h1>
+            <p className="text-xs text-slate-400 mt-1">
+              Cifrado E2EE sin número telefónico • Contacto protegido por invitación
+            </p>
+          </div>
+
+          <div className="flex bg-slate-800/80 p-1 rounded-2xl mb-6">
+            <button
+              type="button"
+              onClick={() => { setAuthMode('register'); setAuthError(null); }}
+              className={`flex-1 py-2 text-xs font-semibold rounded-xl transition-all ${
+                authMode === 'register' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Crear Cuenta
+            </button>
+            <button
+              type="button"
+              onClick={() => { setAuthMode('login'); setAuthError(null); }}
+              className={`flex-1 py-2 text-xs font-semibold rounded-xl transition-all ${
+                authMode === 'login' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Iniciar Sesión
+            </button>
+          </div>
+
+          <form onSubmit={handleAuth} className="space-y-4">
+            {authMode === 'register' && (
+              <div className="flex flex-col items-center justify-center mb-4">
+                <div
+                  className="relative group cursor-pointer"
+                  onClick={() => avatarFileInputRef.current?.click()}
+                  title="Toca para subir tu foto de perfil"
+                >
+                  <img
+                    src={displayAvatar}
+                    alt="Avatar"
+                    className="w-20 h-20 rounded-full border-2 border-indigo-500/60 object-cover bg-slate-800 shadow-md"
+                  />
+                  <div className="absolute inset-0 bg-black/40 rounded-full flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Camera className="w-6 h-6 text-white" />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); avatarFileInputRef.current?.click(); }}
+                    className="absolute -bottom-1 -right-1 p-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full shadow-lg border-2 border-slate-900"
+                    title="Subir foto de perfil"
+                  >
+                    <Camera className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <input
+                  type="file"
+                  ref={avatarFileInputRef}
+                  accept="image/*"
+                  onChange={handleAvatarSelect}
+                  className="hidden"
+                />
+
+                <button
+                  type="button"
+                  onClick={() => avatarFileInputRef.current?.click()}
+                  className="text-xs text-indigo-400 hover:text-indigo-300 font-medium mt-2 flex items-center gap-1.5 transition-colors"
+                >
+                  <Upload className="w-3.5 h-3.5" /> {avatarPreview ? 'Cambiar foto de perfil' : 'Subir tu foto de perfil'}
+                </button>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1 flex items-center gap-1.5">
+                <User className="w-3.5 h-3.5 text-indigo-400" /> Nombre de Usuario (Sin teléfono)
+              </label>
+              <input
+                type="text"
+                required
+                value={usernameInput}
+                onChange={(e) => setUsernameInput(e.target.value)}
+                placeholder="ej: papa, mama, sofia, abuelita"
+                className="w-full py-2.5 px-4 rounded-xl bg-slate-800 border border-slate-700 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1 flex items-center gap-1.5">
+                <Lock className="w-3.5 h-3.5 text-indigo-400" /> Contraseña
+              </label>
+              <input
+                type="password"
+                required={authMode === 'register'}
+                value={passwordInput}
+                onChange={(e) => setPasswordInput(e.target.value)}
+                placeholder={authMode === 'register' ? 'Crea una contraseña segura' : 'Tu contraseña (si aplica)'}
+                className="w-full py-2.5 px-4 rounded-xl bg-slate-800 border border-slate-700 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+
+            {authMode === 'register' && (
+              <>
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">¿Quién usará esta cuenta?</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setRoleInput('guardian'); setAgeInput(38); }}
+                      className={`py-2 px-2 rounded-xl text-xs font-semibold border transition-all ${
+                        roleInput === 'guardian'
+                          ? 'border-indigo-500 bg-indigo-500/20 text-indigo-300 shadow-sm'
+                          : 'border-slate-800 bg-slate-800/50 text-slate-400 hover:border-slate-700'
+                      }`}
+                    >
+                      🛡️ Adulto / Papá
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setRoleInput('teen'); setAgeInput(14); }}
+                      className={`py-2 px-2 rounded-xl text-xs font-semibold border transition-all ${
+                        roleInput === 'teen'
+                          ? 'border-cyan-500 bg-cyan-500/20 text-cyan-300 shadow-sm'
+                          : 'border-slate-800 bg-slate-800/50 text-slate-400 hover:border-slate-700'
+                      }`}
+                    >
+                      ⚡ Joven (10-17)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setRoleInput('kid'); setAgeInput(7); }}
+                      className={`py-2 px-2 rounded-xl text-xs font-semibold border transition-all ${
+                        roleInput === 'kid'
+                          ? 'border-amber-500 bg-amber-500/20 text-amber-300 shadow-sm'
+                          : 'border-slate-800 bg-slate-800/50 text-slate-400 hover:border-slate-700'
+                      }`}
+                    >
+                      🌟 Niño (&lt;10)
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Edad: {ageInput} años</label>
+                  <input
+                    type="range"
+                    min={4}
+                    max={85}
+                    value={ageInput}
+                    onChange={(e) => setAgeInput(Number(e.target.value))}
+                    className="w-full accent-indigo-500"
+                  />
+                </div>
+
+                {(roleInput === 'kid' || roleInput === 'teen') && (
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1">
+                      Nombre de Usuario del Papá/Mamá Guardián
+                    </label>
+                    <input
+                      type="text"
+                      value={guardianUsernameInput}
+                      onChange={(e) => setGuardianUsernameInput(e.target.value)}
+                      placeholder="ej: Maverick"
+                      className="w-full py-2.5 px-4 rounded-xl bg-slate-800 border border-slate-700 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-indigo-500"
+                    />
+                    <span className="text-[10px] text-slate-400 mt-1 block">
+                      Vinculará la cuenta del menor a la gobernanza y supervisión del padre.
+                    </span>
+                  </div>
+                )}
+              </>
+            )}
+
+            {authError && (
+              <div className="p-3 bg-red-950/40 border border-red-800/60 rounded-xl text-red-400 text-xs">
+                {authError}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={authLoading}
+              className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 mt-4 active:scale-98"
+            >
+              {authLoading ? 'Generando Criptografía...' : authMode === 'login' ? 'Entrar al Chat' : 'Crear Cuenta Segura'}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // SISTER APP: FAMILY PHOTOS VAULT
+  if (currentTab === 'photos') {
+    return (
+      <>
+        <FamilyPhotosVault
+          currentUser={currentUser}
+          contacts={contacts}
+          messages={messages}
+          onBackToChat={() => setCurrentTab('chat')}
+          onDeleteMessage={handleDeleteMessage}
+          onDeleteChatPhotos={handleDeleteChatPhotos}
+          onRequestPinUnlock={(callback, title, description) =>
+            executeWithPinPrompt(callback, title, description, true)
+          }
+        />
+        <ParentPinModal
+          isOpen={showPinModal}
+          onClose={() => {
+            setShowPinModal(false);
+            setPendingAction(null);
+          }}
+          onSuccess={() => {
+            if (pendingAction) {
+              const act = pendingAction;
+              setPendingAction(null);
+              act();
+            }
+          }}
+          title={pinModalTitle}
+          description={pinModalDesc}
+        />
+      </>
+    );
+  }
+
+  // 1. KIDS EXPERIENCE (< 10)
+  if (currentUser.role === 'kid' || (currentUser.age && currentUser.age < 10)) {
+    return (
+      <>
+        <KidsView
+          currentUser={currentUser}
+          contacts={contacts}
+          activeContact={activeContact}
+          onSelectContact={setActiveContact}
+          onBackToContacts={() => setActiveContact(null)}
+          messages={activeChatMessages}
+          onSendMessage={handleSendMessage}
+          onSendAudio={handleSendAudio}
+          onSendPhoto={handleSendPhoto}
+          onDeleteMessage={handleDeleteMessage}
+          onEditMessage={handleEditMessage}
+          onClearChat={handleClearChat}
+          onLogout={handleLogout}
+          onOpenPhotosVault={() => setCurrentTab('photos')}
+          unlockedProtectedPhotos={unlockedProtectedPhotos}
+          onUnlockProtectedPhoto={handleUnlockProtectedPhoto}
+        />
+        <ParentPinModal
+          isOpen={showPinModal}
+          onClose={() => { setShowPinModal(false); setPendingAction(null); }}
+          onSuccess={() => {
+            if (pendingAction) {
+              const act = pendingAction;
+              setPendingAction(null);
+              act();
+            }
+          }}
+          title={pinModalTitle}
+          description={pinModalDesc}
+        />
+      </>
+    );
+  }
+
+  // 2. TEENS EXPERIENCE (10 - 17)
+  if (currentUser.role === 'teen' || (currentUser.age && currentUser.age >= 10 && currentUser.age < 18)) {
+    return (
+      <>
+        <TeensView
+          currentUser={currentUser}
+          contacts={contacts}
+          activeContact={activeContact}
+          onSelectContact={setActiveContact}
+          onBackToContacts={() => setActiveContact(null)}
+          messages={activeChatMessages}
+          onSendMessage={handleSendMessage}
+          onSendAudio={handleSendAudio}
+          onSendPhoto={handleSendPhoto}
+          onDeleteMessage={handleDeleteMessage}
+          onEditMessage={handleEditMessage}
+          onClearChat={handleClearChat}
+          onLogout={handleLogout}
+          onOpenPhotosVault={() => setCurrentTab('photos')}
+          unlockedProtectedPhotos={unlockedProtectedPhotos}
+          onUnlockProtectedPhoto={handleUnlockProtectedPhoto}
+        />
+
+        <ParentPinModal
+          isOpen={showPinModal}
+          onClose={() => { setShowPinModal(false); setPendingAction(null); }}
+          onSuccess={() => {
+            if (pendingAction) {
+              const act = pendingAction;
+              setPendingAction(null);
+              act();
+            }
+          }}
+          title={pinModalTitle}
+          description={pinModalDesc}
+        />
+      </>
+    );
+  }
+
+  // 3. ADULTS / GUARDIAN EXPERIENCE
+  return (
+    <>
+      <AdultsView
+        currentUser={currentUser}
+        contacts={contacts}
+        activeContact={activeContact}
+        onSelectContact={setActiveContact}
+        onBackToContacts={() => setActiveContact(null)}
+        messages={activeChatMessages}
+        mirrorMessages={mirrorMessages}
+        childrenList={childrenList}
+        onSendMessage={handleSendMessage}
+        onSendAudio={handleSendAudio}
+        onSendPhoto={handleSendPhoto}
+        onDeleteMessage={handleDeleteMessage}
+        onEditMessage={handleEditMessage}
+        onClearChat={handleClearChat}
+        onOpenInviteModal={() => setShowInviteModal(true)}
+        onLogout={handleLogout}
+        onOpenPhotosVault={() => setCurrentTab('photos')}
+        unlockedProtectedPhotos={unlockedProtectedPhotos}
+        onUnlockProtectedPhoto={handleUnlockProtectedPhoto}
+      />
+
+      <InviteModal
+        isOpen={showInviteModal}
+        onClose={() => setShowInviteModal(false)}
+        currentUserId={currentUser.id}
+        isGuardian={currentUser.role === 'guardian'}
+        childrenList={childrenList}
+        onInvitationAccepted={fetchContacts}
+      />
+
+      <ParentPinModal
+        isOpen={showPinModal}
+        onClose={() => { setShowPinModal(false); setPendingAction(null); }}
+        onSuccess={() => {
+          if (pendingAction) {
+            const act = pendingAction;
+            setPendingAction(null);
+            act();
+          }
+        }}
+        title={pinModalTitle}
+        description={pinModalDesc}
+      />
+    </>
+  );
+}
+
+export default App;
