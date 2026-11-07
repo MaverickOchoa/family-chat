@@ -285,12 +285,17 @@ export function App() {
     if (!currentUser) return;
     try {
       const res = await fetch(`${API_BASE}/api/contacts/${currentUser.id}`);
+      if (res.status === 404) {
+        handleLogout();
+        return;
+      }
       const data = await res.json();
-      setContacts(data);
-
-      if (currentUser.role === 'guardian') {
-        const kids = data.filter((c: any) => c.guardianId === currentUser.id);
-        setChildrenList(kids);
+      if (Array.isArray(data)) {
+        setContacts(data);
+        if (currentUser.role === 'guardian') {
+          const kids = data.filter((c: any) => c.guardianId === currentUser.id);
+          setChildrenList(kids);
+        }
       }
     } catch (e) {
       console.error('Error fetching contacts:', e);
@@ -314,7 +319,9 @@ export function App() {
     if (!currentUser || !userKeyPair) return;
     try {
       const res = await fetch(`${API_BASE}/api/messages/${currentUser.id}`);
-      const rawMessages: any[] = await res.json();
+      if (!res.ok) return;
+      const rawMessages = await res.json();
+      if (!Array.isArray(rawMessages)) return;
 
       const decryptedList = await Promise.all(
         rawMessages.map(async (pkt) => {
@@ -1087,8 +1094,8 @@ export function App() {
     const displayAvatar = avatarPreview || defaultAvatarUrl;
 
     return (
-      <div className="min-h-screen min-h-[100dvh] bg-slate-950 text-white flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl">
+      <div className="min-h-screen min-h-[100dvh] bg-slate-950 text-white flex items-center justify-center p-4 overflow-y-auto">
+        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl my-auto">
           <div className="text-center mb-6">
             <div className="w-14 h-14 mx-auto rounded-2xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 mb-3 shadow-lg">
               <Shield className="w-8 h-8" />
