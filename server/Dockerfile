@@ -18,6 +18,7 @@ COPY package*.json ./
 RUN npm install --omit=dev
 
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/seed_db.json ./seed_db.json
 
 # Create storage directory for encrypted blobs
 RUN mkdir -p data/encrypted_blobs

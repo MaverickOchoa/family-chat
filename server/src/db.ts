@@ -50,6 +50,18 @@ class Database {
         this.save();
       }
     } else {
+      const seedFile = path.resolve(__dirname, '../seed_db.json');
+      if (fs.existsSync(seedFile)) {
+        try {
+          const raw = fs.readFileSync(seedFile, 'utf-8');
+          this.data = JSON.parse(raw);
+          if (!this.data.handshakes) this.data.handshakes = {};
+          this.save();
+          return;
+        } catch (e) {
+          console.error('Failed to load seed database:', e);
+        }
+      }
       this.save();
     }
   }
