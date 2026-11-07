@@ -15,6 +15,7 @@ import { AdultsView } from './components/AdultsView';
 import { InviteModal } from './components/InviteModal';
 import { ParentPinModal } from './components/ParentPinModal';
 import { FamilyPhotosVault } from './components/FamilyPhotosVault';
+import { SettingsModal } from './components/SettingsModal';
 import { Shield, Camera, Lock, User, Upload, Mail } from 'lucide-react';
 import { API_BASE, WS_BASE } from './config';
 
@@ -56,6 +57,9 @@ export function App() {
   const [childrenList, setChildrenList] = useState<any[]>([]);
   const [currentTab, setCurrentTab] = useState<'chat' | 'photos'>('chat');
   const [unlockedProtectedPhotos, setUnlockedProtectedPhotos] = useState<string[]>([]);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [currentEnvironment, setCurrentEnvironment] = useState<string>('all');
+  const [handshakes, setHandshakes] = useState<any[]>([]);
 
   // Modals
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -117,11 +121,17 @@ export function App() {
 
     fetchContacts();
     fetchMessages();
+    if (currentUser?.role === 'guardian') {
+      fetchHandshakes();
+    }
 
     // Auto-refresh messages and contacts periodically in case WebSocket reconnects
     const pollInterval = setInterval(() => {
       fetchMessages();
       fetchContacts();
+      if (currentUser?.role === 'guardian') {
+        fetchHandshakes();
+      }
     }, 3000);
 
     const ws = new WebSocket(WS_BASE);
@@ -150,6 +160,17 @@ export function App() {
                 )
             )
           );
+        } else if (data.type === 'handshake_request' || data.type === 'handshake_accepted' || data.type === 'handshake_rejected') {
+          fetchHandshakes();
+          fetchContacts();
+          if (data.type === 'handshake_request' && 'Notification' in window && Notification.permission === 'granted') {
+            new Notification('🤝 Solicitud Familiar', {
+              body: `${data.handshake?.fromGuardianName || 'Una madre'} solicita conectar a sus hijos.`,
+              icon: '/favicon.svg'
+            });
+          }
+        } else if (data.type === 'contact_added') {
+          fetchContacts();
         }
       } catch (err) {
         console.error('WS parse error:', err);
@@ -273,6 +294,19 @@ export function App() {
       }
     } catch (e) {
       console.error('Error fetching contacts:', e);
+    }
+  };
+
+  const fetchHandshakes = async () => {
+    if (!currentUser || currentUser.role !== 'guardian') return;
+    try {
+      const res = await fetch(`${API_BASE}/api/guardian/handshakes/${currentUser.id}`);
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setHandshakes(data);
+      }
+    } catch (e) {
+      console.error('Error fetching handshakes:', e);
     }
   };
 
@@ -1227,6 +1261,7 @@ export function App() {
           onClearChat={handleClearChat}
           onLogout={handleLogout}
           onOpenPhotosVault={() => setCurrentTab('photos')}
+          onOpenSettings={() => setShowSettingsModal(true)}
           unlockedProtectedPhotos={unlockedProtectedPhotos}
           onUnlockProtectedPhoto={handleUnlockProtectedPhoto}
           onUserUpdated={handleUserUpdated}
@@ -1243,6 +1278,14 @@ export function App() {
           }}
           title={pinModalTitle}
           description={pinModalDesc}
+        />
+        <SettingsModal
+          isOpen={showSettingsModal}
+          onClose={() => setShowSettingsModal(false)}
+          currentUser={currentUser}
+          currentEnvironment={currentEnvironment}
+          onSelectEnvironment={(env) => setCurrentEnvironment(env)}
+          onLogout={handleLogout}
         />
       </>
     );
@@ -1267,6 +1310,7 @@ export function App() {
           onClearChat={handleClearChat}
           onLogout={handleLogout}
           onOpenPhotosVault={() => setCurrentTab('photos')}
+          onOpenSettings={() => setShowSettingsModal(true)}
           unlockedProtectedPhotos={unlockedProtectedPhotos}
           onUnlockProtectedPhoto={handleUnlockProtectedPhoto}
           onUserUpdated={handleUserUpdated}
@@ -1284,6 +1328,14 @@ export function App() {
           }}
           title={pinModalTitle}
           description={pinModalDesc}
+        />
+        <SettingsModal
+          isOpen={showSettingsModal}
+          onClose={() => setShowSettingsModal(false)}
+          currentUser={currentUser}
+          currentEnvironment={currentEnvironment}
+          onSelectEnvironment={(env) => setCurrentEnvironment(env)}
+          onLogout={handleLogout}
         />
       </>
     );
@@ -1310,6 +1362,9 @@ export function App() {
         onOpenInviteModal={() => setShowInviteModal(true)}
         onLogout={handleLogout}
         onOpenPhotosVault={() => setCurrentTab('photos')}
+        onOpenSettings={() => setShowSettingsModal(true)}
+        handshakes={handshakes}
+        onRefreshHandshakes={fetchHandshakes}
         unlockedProtectedPhotos={unlockedProtectedPhotos}
         onUnlockProtectedPhoto={handleUnlockProtectedPhoto}
         onUserUpdated={handleUserUpdated}
@@ -1337,6 +1392,15 @@ export function App() {
         }}
         title={pinModalTitle}
         description={pinModalDesc}
+      />
+
+      <SettingsModal
+        isOpen={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+        currentUser={currentUser}
+        currentEnvironment={currentEnvironment}
+        onSelectEnvironment={(env) => setCurrentEnvironment(env)}
+        onLogout={handleLogout}
       />
     </>
   );

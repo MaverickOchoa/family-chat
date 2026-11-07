@@ -19,6 +19,22 @@ export interface ApprovedContact {
   userId: string;
   contactId: string;
   approvedByGuardianId?: string;
+  environment?: string; // 'family' | 'church' | 'work' etc.
+  createdAt: string;
+}
+
+export interface GuardianHandshakeRequest {
+  id: string;
+  fromGuardianId: string;
+  fromGuardianName: string;
+  toGuardianId: string;
+  toGuardianName: string;
+  fromChildId: string;
+  fromChildName: string;
+  toChildId: string;
+  toChildName: string;
+  environment?: string;
+  status: 'pending' | 'accepted' | 'rejected';
   createdAt: string;
 }
 

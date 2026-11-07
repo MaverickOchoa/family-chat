@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { UserProfile, ApprovedContact, PairingInvitation, EncryptedMessagePacket } from './types.js';
+import type { UserProfile, ApprovedContact, PairingInvitation, EncryptedMessagePacket, GuardianHandshakeRequest } from './types.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,6 +14,7 @@ interface DatabaseSchema {
   contacts: ApprovedContact[];
   invitations: Record<string, PairingInvitation>;
   messages: EncryptedMessagePacket[];
+  handshakes: Record<string, GuardianHandshakeRequest>;
 }
 
 class Database {
@@ -21,7 +22,8 @@ class Database {
     users: {},
     contacts: [],
     invitations: {},
-    messages: []
+    messages: [],
+    handshakes: {}
   };
 
   constructor() {
@@ -40,6 +42,9 @@ class Database {
       try {
         const raw = fs.readFileSync(DB_FILE, 'utf-8');
         this.data = JSON.parse(raw);
+        if (!this.data.handshakes) {
+          this.data.handshakes = {};
+        }
       } catch (err) {
         console.error('Failed to parse database file, initializing empty state:', err);
         this.save();
@@ -117,23 +122,59 @@ class Database {
     );
   }
 
-  addContact(userId: string, contactId: string, approvedByGuardianId?: string): ApprovedContact {
+  getChildrenOfGuardian(guardianId: string): UserProfile[] {
+    return Object.values(this.data.users).filter(u => u.guardianId === guardianId);
+  }
+
+  addContact(userId: string, contactId: string, approvedByGuardianId?: string, environment?: string): ApprovedContact {
     if (this.areContacts(userId, contactId)) {
-      return this.data.contacts.find(
+      const existing = this.data.contacts.find(
         c => (c.userId === userId && c.contactId === contactId) ||
              (c.userId === contactId && c.contactId === userId)
       )!;
+      if (environment && !existing.environment) {
+        existing.environment = environment;
+        this.save();
+      }
+      return existing;
     }
     const newContact: ApprovedContact = {
       id: crypto.randomUUID(),
       userId,
       contactId,
       approvedByGuardianId,
+      environment: environment || 'family',
       createdAt: new Date().toISOString()
     };
     this.data.contacts.push(newContact);
     this.save();
     return newContact;
+  }
+
+  // Guardian Handshakes (Cross-family child connection)
+  createHandshake(req: GuardianHandshakeRequest): GuardianHandshakeRequest {
+    this.data.handshakes[req.id] = req;
+    this.save();
+    return req;
+  }
+
+  getHandshake(id: string): GuardianHandshakeRequest | undefined {
+    return this.data.handshakes[id];
+  }
+
+  getHandshakesForGuardian(guardianId: string): GuardianHandshakeRequest[] {
+    return Object.values(this.data.handshakes).filter(
+      h => h.fromGuardianId === guardianId || h.toGuardianId === guardianId
+    );
+  }
+
+  updateHandshake(id: string, updates: Partial<GuardianHandshakeRequest>): GuardianHandshakeRequest | undefined {
+    const h = this.data.handshakes[id];
+    if (!h) return undefined;
+    const updated = { ...h, ...updates };
+    this.data.handshakes[id] = updated;
+    this.save();
+    return updated;
   }
 
   // Invitations
@@ -167,10 +208,23 @@ class Database {
   getMessagesForUser(userId: string): EncryptedMessagePacket[] {
     // Return messages where user is sender, recipient, or mirror (for parent audit of kid < 10)
     // Exclude messages hidden by this user ("eliminar para mí")
-    return this.data.messages.filter(
-      m => (m.fromUserId === userId || m.toUserId === userId || m.mirrorUserId === userId) &&
-           (!m.hiddenForUserIds || !m.hiddenForUserIds.includes(userId))
-    );
+    const user = this.data.users[userId];
+    const isGuardian = user?.role === 'guardian';
+    const childIds = isGuardian ? this.getChildrenOfGuardian(userId).map(c => c.id) : [];
+
+    return this.data.messages.filter(m => {
+      if (m.hiddenForUserIds && m.hiddenForUserIds.includes(userId)) return false;
+      if (m.fromUserId === userId || m.toUserId === userId || m.mirrorUserId === userId) return true;
+      if (isGuardian && (childIds.includes(m.fromUserId) || childIds.includes(m.toUserId))) {
+        const sender = this.data.users[m.fromUserId];
+        const recipient = this.data.users[m.toUserId];
+        if ((childIds.includes(m.fromUserId) && sender?.age && sender.age < 10) ||
+            (childIds.includes(m.toUserId) && recipient?.age && recipient.age < 10)) {
+          return true;
+        }
+      }
+      return false;
+    });
   }
 
   updateMessageStatus(messageId: string, status: 'delivered' | 'read'): boolean {

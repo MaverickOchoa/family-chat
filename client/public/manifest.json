@@ -1,0 +1,18 @@
+{
+  "name": "FamilyChat - Plataforma Familiar Soberana",
+  "short_name": "FamilyChat",
+  "description": "Mensajería familiar cifrada E2EE y bóveda de fotos estanca sin números telefónicos.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#020617",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

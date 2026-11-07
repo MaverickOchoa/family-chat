@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Send, ShieldCheck, Play, Pause, Trash2, Edit3, Eraser, Image as ImageIcon, Lock, Camera } from 'lucide-react';
+import { ArrowLeft, Send, ShieldCheck, Play, Pause, Trash2, Edit3, Eraser, Image as ImageIcon, Lock, Camera, Settings } from 'lucide-react';
 import { AudioRecorder } from './AudioRecorder';
 import { PhotoSender } from './PhotoSender';
 import { DeleteOptionsModal } from './DeleteOptionsModal';
@@ -22,6 +22,7 @@ interface TeensViewProps {
   onClearChat: (contactId: string, mode: 'for_me' | 'for_everyone') => void;
   onLogout: () => void;
   onOpenPhotosVault: () => void;
+  onOpenSettings?: () => void;
   unlockedProtectedPhotos?: string[];
   onUnlockProtectedPhoto?: (msgId: string) => void;
   onUserUpdated?: (user: any) => void;
@@ -42,6 +43,7 @@ export const TeensView: React.FC<TeensViewProps> = ({
   onClearChat,
   onLogout,
   onOpenPhotosVault,
+  onOpenSettings,
   unlockedProtectedPhotos,
   onUnlockProtectedPhoto,
   onUserUpdated
@@ -104,9 +106,21 @@ export const TeensView: React.FC<TeensViewProps> = ({
               <span className="text-[11px] font-mono text-cyan-400">TEEN ZONE (10-17)</span>
             </div>
           </div>
-          <button onClick={onLogout} className="text-xs text-slate-400 hover:text-white px-2 py-1 rounded bg-slate-800">
-            Salir
-          </button>
+          <div className="flex items-center gap-2">
+            {onOpenSettings && (
+              <button
+                type="button"
+                onClick={onOpenSettings}
+                className="p-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors"
+                title="Ajustes y Dispositivo"
+              >
+                <Settings className="w-4 h-4" />
+              </button>
+            )}
+            <button onClick={onLogout} className="text-xs text-slate-400 hover:text-white px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 transition-colors">
+              Salir
+            </button>
+          </div>
         </header>
 
         <div className="px-4 py-2 bg-cyan-950/20 border-b border-cyan-900/30 flex items-center gap-2 text-[11px] text-cyan-400">
@@ -141,7 +155,14 @@ export const TeensView: React.FC<TeensViewProps> = ({
               >
                 <img src={contact.avatar} alt="" className="w-11 h-11 rounded-full border border-slate-700 bg-slate-800" />
                 <div className="text-left flex-1 min-w-0">
-                  <div className="font-semibold text-sm truncate">{contact.username}</div>
+                  <div className="font-semibold text-sm truncate flex items-center justify-between">
+                    <span>{contact.username}</span>
+                    {contact.environment === 'church' && (
+                      <span className="text-[9px] bg-purple-950 text-purple-300 border border-purple-800/60 px-1.5 py-0.2 rounded-full font-bold">
+                        ⛪ Iglesia
+                      </span>
+                    )}
+                  </div>
                   <div className="text-xs text-slate-500 truncate">Canal seguro verificado</div>
                 </div>
               </button>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Play, Pause, Smile, Sparkles, Send, Trash2, Edit3, Eraser, Image as ImageIcon, Lock, Camera } from 'lucide-react';
+import { ArrowLeft, Play, Pause, Smile, Sparkles, Send, Trash2, Edit3, Eraser, Image as ImageIcon, Lock, Camera, Settings } from 'lucide-react';
 import { AudioRecorder } from './AudioRecorder';
 import { PhotoSender } from './PhotoSender';
 import { DeleteOptionsModal } from './DeleteOptionsModal';
@@ -22,6 +22,7 @@ interface KidsViewProps {
   onClearChat: (contactId: string, mode: 'for_me' | 'for_everyone') => void;
   onLogout: () => void;
   onOpenPhotosVault: () => void;
+  onOpenSettings?: () => void;
   unlockedProtectedPhotos?: string[];
   onUnlockProtectedPhoto?: (msgId: string) => void;
   onUserUpdated?: (user: any) => void;
@@ -42,6 +43,7 @@ export const KidsView: React.FC<KidsViewProps> = ({
   onClearChat,
   onLogout,
   onOpenPhotosVault,
+  onOpenSettings,
   unlockedProtectedPhotos,
   onUnlockProtectedPhoto,
   onUserUpdated
@@ -144,9 +146,19 @@ export const KidsView: React.FC<KidsViewProps> = ({
             </button>
           )}
 
+          {onOpenSettings && (
+            <button
+              onClick={onOpenSettings}
+              className="p-1.5 sm:p-2 rounded-xl bg-amber-200 hover:bg-amber-100 text-amber-950 transition-colors shadow-sm"
+              title="Ajustes"
+            >
+              <Settings className="w-4 h-4 text-amber-800" />
+            </button>
+          )}
+
           <button
             onClick={onLogout}
-            className="text-xs font-bold bg-amber-200 hover:bg-amber-300 text-amber-800 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-xl"
+            className="text-xs font-bold bg-amber-200 hover:bg-amber-300 text-amber-800 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-xl shadow-sm"
           >
             Salir
           </button>
@@ -177,15 +189,22 @@ export const KidsView: React.FC<KidsViewProps> = ({
                   <button
                     key={contact.id}
                     onClick={() => onSelectContact(contact)}
-                    className="flex flex-col items-center p-6 bg-white hover:bg-amber-100/90 active:scale-95 border-3 border-amber-300 rounded-3xl shadow-lg transition-all"
+                    className="flex flex-col items-center p-6 bg-white hover:bg-amber-100/90 active:scale-95 border-3 border-amber-300 rounded-3xl shadow-lg transition-all relative"
                   >
+                    {contact.environment === 'church' && (
+                      <span className="absolute top-3 right-3 text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-300 px-2 py-0.5 rounded-full shadow-sm">
+                        ⛪ Iglesia
+                      </span>
+                    )}
                     <img
                       src={contact.avatar}
                       alt={contact.username}
                       className="w-24 h-24 rounded-full border-4 border-amber-400 shadow-md mb-3 bg-amber-50"
                     />
                     <span className="text-xl font-black text-amber-950 capitalize">{contact.username}</span>
-                    <span className="text-xs font-bold text-amber-600 mt-1">Toca para platicar</span>
+                    <span className="text-xs font-bold text-amber-600 mt-1">
+                      {contact.environment === 'church' ? 'Amiga de la iglesia' : 'Toca para platicar'}
+                    </span>
                   </button>
                 ))}
               </div>

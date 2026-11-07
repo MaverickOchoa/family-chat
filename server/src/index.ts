@@ -6,7 +6,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
 import { db, STORAGE_DIR } from './db.js';
-import type { UserProfile, UserRole, WSClientMessage, EncryptedMessagePacket, PairingInvitation } from './types.js';
+import type { UserProfile, UserRole, WSClientMessage, EncryptedMessagePacket, PairingInvitation, GuardianHandshakeRequest } from './types.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -175,6 +175,109 @@ app.post('/api/guardian/create-child', (req, res) => {
   }
 });
 
+// 1.2 Get Children of Guardian
+app.get('/api/guardian/children/:guardianId', (req, res) => {
+  const { guardianId } = req.params;
+  const children = db.getChildrenOfGuardian(guardianId);
+  return res.json(children);
+});
+
+// 1.3 Get Handshakes for Guardian
+app.get('/api/guardian/handshakes/:guardianId', (req, res) => {
+  const { guardianId } = req.params;
+  const handshakes = db.getHandshakesForGuardian(guardianId);
+  return res.json(handshakes);
+});
+
+// 1.4 Create Cross-Family Handshake Request ("Apretón de Manos entre Madres")
+app.post('/api/guardian/handshake/create', (req, res) => {
+  try {
+    const { fromGuardianId, toGuardianId, fromChildId, toChildId, environment } = req.body;
+    if (!fromGuardianId || !toGuardianId || !fromChildId || !toChildId) {
+      return res.status(400).json({ error: 'Todos los campos son requeridos.' });
+    }
+
+    const fromGuardian = db.getUser(fromGuardianId);
+    const toGuardian = db.getUser(toGuardianId);
+    const fromChild = db.getUser(fromChildId);
+    const toChild = db.getUser(toChildId);
+
+    if (!fromGuardian || !toGuardian || !fromChild || !toChild) {
+      return res.status(404).json({ error: 'Uno o más usuarios no fueron encontrados.' });
+    }
+
+    const handshake: GuardianHandshakeRequest = {
+      id: uuidv4(),
+      fromGuardianId,
+      fromGuardianName: fromGuardian.username,
+      toGuardianId,
+      toGuardianName: toGuardian.username,
+      fromChildId,
+      fromChildName: fromChild.username,
+      toChildId,
+      toChildName: toChild.username,
+      environment: environment || 'church',
+      status: 'pending',
+      createdAt: new Date().toISOString()
+    };
+
+    db.createHandshake(handshake);
+
+    // Notify the other guardian over WebSocket
+    broadcastToUser(toGuardianId, {
+      type: 'handshake_request',
+      handshake
+    });
+
+    return res.json({ success: true, handshake });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 1.5 Respond to Cross-Family Handshake Request
+app.post('/api/guardian/handshake/respond', (req, res) => {
+  try {
+    const { handshakeId, guardianId, response, guardianPin } = req.body;
+    if (!handshakeId || !guardianId || !response) {
+      return res.status(400).json({ error: 'handshakeId, guardianId y response son requeridos.' });
+    }
+
+    const handshake = db.getHandshake(handshakeId);
+    if (!handshake) {
+      return res.status(404).json({ error: 'Solicitud no encontrada.' });
+    }
+
+    if (handshake.toGuardianId !== guardianId && handshake.fromGuardianId !== guardianId) {
+      return res.status(403).json({ error: 'No tienes autorización sobre esta solicitud.' });
+    }
+
+    if (response === 'accept') {
+      if (guardianPin !== '1234') {
+        return res.status(403).json({ error: 'PIN de guardián incorrecto (PIN por defecto: 1234).' });
+      }
+
+      const updated = db.updateHandshake(handshakeId, { status: 'accepted' });
+      // Mutual contact connection between both children with the agreed environment
+      db.addContact(handshake.fromChildId, handshake.toChildId, handshake.toGuardianId, handshake.environment || 'church');
+
+      // Realtime notification to both guardians and both children
+      broadcastToUser(handshake.fromGuardianId, { type: 'handshake_accepted', handshake: updated });
+      broadcastToUser(handshake.toGuardianId, { type: 'handshake_accepted', handshake: updated });
+      broadcastToUser(handshake.fromChildId, { type: 'contact_added', contactId: handshake.toChildId });
+      broadcastToUser(handshake.toChildId, { type: 'contact_added', contactId: handshake.fromChildId });
+
+      return res.json({ success: true, handshake: updated });
+    } else {
+      const updated = db.updateHandshake(handshakeId, { status: 'rejected' });
+      broadcastToUser(handshake.fromGuardianId, { type: 'handshake_rejected', handshake: updated });
+      return res.json({ success: true, handshake: updated });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // 2. Login by Username and optional Password
 app.post('/api/auth/login', (req, res) => {
   const { username, password, publicKey } = req.body;
@@ -223,13 +326,16 @@ app.get('/api/contacts/:userId', (req, res) => {
   }
 
   const contactLinks = db.getContacts(userId);
-  const contactUsers: UserProfile[] = [];
+  const contactUsers: (UserProfile & { environment?: string })[] = [];
 
   for (const link of contactLinks) {
     const otherId = link.userId === userId ? link.contactId : link.userId;
     const contactUser = db.getUser(otherId);
     if (contactUser) {
-      contactUsers.push(contactUser);
+      contactUsers.push({
+        ...contactUser,
+        environment: link.environment || 'family'
+      });
     }
   }
 
@@ -239,7 +345,10 @@ app.get('/api/contacts/:userId', (req, res) => {
     const myKids = all.filter(u => u.guardianId === userId);
     for (const kid of myKids) {
       if (!contactUsers.some(c => c.id === kid.id)) {
-        contactUsers.push(kid);
+        contactUsers.push({
+          ...kid,
+          environment: 'family'
+        });
       }
     }
   }
@@ -345,12 +454,22 @@ app.post('/api/messages/send', (req, res) => {
     message: packet
   });
 
-  // Deliver to mirror guardian if kid < 10
-  if (packet.mirrorUserId && packet.mirrorUserId !== packet.fromUserId) {
-    broadcastToUser(packet.mirrorUserId, {
-      type: 'mirror_message',
-      message: packet
-    });
+  // Deliver to mirror guardians if kid < 10 (supports both families having mirror view)
+  const mirrorGuardiansToNotify = new Set<string>();
+  if (sender?.role === 'kid' && sender.age && sender.age < 10 && sender.guardianId) {
+    mirrorGuardiansToNotify.add(sender.guardianId);
+  }
+  if (recipient?.role === 'kid' && recipient.age && recipient.age < 10 && recipient.guardianId) {
+    mirrorGuardiansToNotify.add(recipient.guardianId);
+  }
+
+  for (const gId of mirrorGuardiansToNotify) {
+    if (gId !== packet.fromUserId) {
+      broadcastToUser(gId, {
+        type: 'mirror_message',
+        message: packet
+      });
+    }
   }
 
   return res.json({ success: true, messageId: packet.id });
@@ -560,12 +679,22 @@ wss.on('connection', (ws) => {
             message: packet
           });
 
-          // 2. If mirrorUserId is set (parent audit view for kid < 10), deliver to guardian!
-          if (packet.mirrorUserId && packet.mirrorUserId !== authenticatedUserId) {
-            broadcastToUser(packet.mirrorUserId, {
-              type: 'mirror_message',
-              message: packet
-            });
+          // 2. Deliver to mirror guardians if kid < 10 (supports both families having mirror view)
+          const mirrorGuardiansToNotify = new Set<string>();
+          if (sender?.role === 'kid' && sender.age && sender.age < 10 && sender.guardianId) {
+            mirrorGuardiansToNotify.add(sender.guardianId);
+          }
+          if (recipient?.role === 'kid' && recipient.age && recipient.age < 10 && recipient.guardianId) {
+            mirrorGuardiansToNotify.add(recipient.guardianId);
+          }
+
+          for (const gId of mirrorGuardiansToNotify) {
+            if (gId !== authenticatedUserId) {
+              broadcastToUser(gId, {
+                type: 'mirror_message',
+                message: packet
+              });
+            }
           }
 
           // 3. ACK back to sender

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Send, Shield, UserPlus, Eye, Play, Pause, Trash2, Users, Edit3, Eraser, Image as ImageIcon, Lock, Sparkles, Camera } from 'lucide-react';
+import { ArrowLeft, Send, Shield, UserPlus, Eye, Play, Pause, Trash2, Users, Edit3, Eraser, Image as ImageIcon, Lock, Sparkles, Camera, Settings, Handshake } from 'lucide-react';
 import { AudioRecorder } from './AudioRecorder';
 import { PhotoSender } from './PhotoSender';
 import { DeleteOptionsModal } from './DeleteOptionsModal';
@@ -7,6 +7,8 @@ import { EditMessageModal } from './EditMessageModal';
 import { ClearChatModal } from './ClearChatModal';
 import { AvatarEditorModal } from './AvatarEditorModal';
 import { AddChildModal } from './AddChildModal';
+import { ConnectKidsModal } from './ConnectKidsModal';
+import { HandshakeRequestsModal } from './HandshakeRequestsModal';
 
 interface AdultsViewProps {
   currentUser: any;
@@ -26,6 +28,9 @@ interface AdultsViewProps {
   onOpenInviteModal: () => void;
   onLogout: () => void;
   onOpenPhotosVault: () => void;
+  onOpenSettings?: () => void;
+  handshakes?: any[];
+  onRefreshHandshakes?: () => void;
   unlockedProtectedPhotos?: string[];
   onUnlockProtectedPhoto?: (msgId: string) => void;
   onRefreshContacts?: () => void;
@@ -50,6 +55,9 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
   onOpenInviteModal,
   onLogout,
   onOpenPhotosVault,
+  onOpenSettings,
+  handshakes = [],
+  onRefreshHandshakes,
   unlockedProtectedPhotos,
   onUnlockProtectedPhoto,
   onRefreshContacts,
@@ -64,6 +72,10 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
   const [showClearModal, setShowClearModal] = useState(false);
   const [showAvatarModal, setShowAvatarModal] = useState(false);
   const [showAddChildModal, setShowAddChildModal] = useState(false);
+  const [showConnectKidsModal, setShowConnectKidsModal] = useState(false);
+  const [connectTargetGuardian, setConnectTargetGuardian] = useState<any>(null);
+  const [showHandshakesModal, setShowHandshakesModal] = useState(false);
+  const [envFilter, setEnvFilter] = useState<'all' | 'family' | 'church' | 'work'>('all');
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -132,12 +144,24 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
               </div>
             </div>
           </div>
-          <button
-            onClick={onLogout}
-            className="text-xs font-medium text-slate-400 hover:text-white px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 transition-colors"
-          >
-            Salir
-          </button>
+          <div className="flex items-center gap-2">
+            {onOpenSettings && (
+              <button
+                type="button"
+                onClick={onOpenSettings}
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+                title="Ajustes y Dispositivo"
+              >
+                <Settings className="w-4 h-4" />
+              </button>
+            )}
+            <button
+              onClick={onLogout}
+              className="text-xs font-medium text-slate-400 hover:text-white px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 transition-colors"
+            >
+              Salir
+            </button>
+          </div>
         </header>
 
         {/* Tab switcher: Normal Chats vs Mirror Oversight */}
@@ -167,8 +191,74 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
           )}
         </div>
 
+        {/* Pending Handshakes Banner */}
+        {handshakes.some((h: any) => h.toGuardianId === currentUser.id && h.status === 'pending') && (
+          <div
+            onClick={() => setShowHandshakesModal(true)}
+            className="mx-3 mt-2 p-2.5 bg-gradient-to-r from-purple-900/70 to-indigo-900/70 border border-purple-500/50 rounded-2xl cursor-pointer hover:border-purple-400 transition-all flex items-center justify-between shadow-lg"
+          >
+            <div className="flex items-center gap-2 text-xs font-bold text-purple-200">
+              <Handshake className="w-4 h-4 text-purple-400 animate-pulse" />
+              <span>Solicitud de Conexión de Hijos</span>
+            </div>
+            <span className="text-[10px] bg-purple-500 text-white font-black px-2 py-0.5 rounded-full">
+              Revisar
+            </span>
+          </div>
+        )}
+
+        {/* Environment Filter Chips */}
+        {activeTab === 'chats' && (
+          <div className="px-3 pt-2.5 flex items-center gap-1.5 overflow-x-auto text-[11px] font-semibold text-slate-400 flex-shrink-0">
+            <button
+              type="button"
+              onClick={() => setEnvFilter('all')}
+              className={`px-2.5 py-1 rounded-xl transition-all whitespace-nowrap ${
+                envFilter === 'all'
+                  ? 'bg-indigo-600 text-white shadow'
+                  : 'bg-slate-800/80 hover:bg-slate-800 text-slate-400 hover:text-white'
+              }`}
+            >
+              🌐 Todos
+            </button>
+            <button
+              type="button"
+              onClick={() => setEnvFilter('family')}
+              className={`px-2.5 py-1 rounded-xl transition-all whitespace-nowrap ${
+                envFilter === 'family'
+                  ? 'bg-indigo-600 text-white shadow'
+                  : 'bg-slate-800/80 hover:bg-slate-800 text-slate-400 hover:text-white'
+              }`}
+            >
+              🏠 Familia
+            </button>
+            <button
+              type="button"
+              onClick={() => setEnvFilter('church')}
+              className={`px-2.5 py-1 rounded-xl transition-all whitespace-nowrap ${
+                envFilter === 'church'
+                  ? 'bg-purple-600 text-white shadow'
+                  : 'bg-slate-800/80 hover:bg-slate-800 text-slate-400 hover:text-white'
+              }`}
+            >
+              ⛪ Iglesia
+            </button>
+            <button
+              type="button"
+              onClick={() => setEnvFilter('work')}
+              className={`px-2.5 py-1 rounded-xl transition-all whitespace-nowrap ${
+                envFilter === 'work'
+                  ? 'bg-cyan-600 text-white shadow'
+                  : 'bg-slate-800/80 hover:bg-slate-800 text-slate-400 hover:text-white'
+              }`}
+            >
+              💼 Trabajo
+            </button>
+          </div>
+        )}
+
         {/* Action Button: Invite family member */}
-        <div className="px-3 pt-2.5 flex-shrink-0 space-y-1.5">
+        <div className="px-3 pt-2 flex-shrink-0 space-y-1.5">
           <button
             onClick={onOpenPhotosVault}
             className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-purple-950/60 to-indigo-950/60 hover:from-purple-900/70 hover:to-indigo-900/70 border border-purple-500/30 text-purple-200 font-semibold text-xs flex items-center justify-center gap-2 transition-all shadow-sm"
@@ -196,39 +286,55 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
         {/* Contact List */}
         <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-1">
           {activeTab === 'chats' ? (
-            contacts.length === 0 ? (
+            contacts.filter(c => envFilter === 'all' || (c.environment || 'family') === envFilter).length === 0 ? (
               <div className="p-8 text-center text-xs text-slate-500">
-                Aún no tienes contactos. Haz clic en "Invitar Familiar" para generar un código seguro.
+                {envFilter === 'all'
+                  ? 'Aún no tienes contactos. Haz clic en "Invitar Familiar" para generar un código seguro.'
+                  : `No hay contactos en el entorno ${envFilter === 'church' ? '⛪ Iglesia' : envFilter === 'work' ? '💼 Trabajo' : '🏠 Familia'}.`}
               </div>
             ) : (
-              contacts.map((contact) => (
-                <button
-                  key={contact.id}
-                  onClick={() => onSelectContact(contact)}
-                  className={`w-full flex items-center gap-3 p-3 rounded-2xl border transition-all ${
-                    activeContact?.id === contact.id
-                      ? 'bg-indigo-950/70 text-white border-indigo-500/40 shadow-sm'
-                      : 'border-transparent hover:bg-slate-800/60 text-slate-300'
-                  }`}
-                >
-                  <img
-                    src={contact.avatar}
-                    alt=""
-                    className="w-11 h-11 rounded-full border border-slate-700 object-cover bg-slate-800"
-                  />
-                  <div className="text-left flex-1 min-w-0">
-                    <div className="font-semibold text-sm truncate flex items-center justify-between">
-                      <span className="text-white">{contact.username}</span>
-                      <span className="text-[10px] text-indigo-400/80 capitalize font-mono px-1.5 py-0.5 rounded bg-slate-800/80">
-                        {contact.role}
-                      </span>
+              contacts
+                .filter(c => envFilter === 'all' || (c.environment || 'family') === envFilter)
+                .map((contact) => (
+                  <button
+                    key={contact.id}
+                    onClick={() => onSelectContact(contact)}
+                    className={`w-full flex items-center gap-3 p-3 rounded-2xl border transition-all ${
+                      activeContact?.id === contact.id
+                        ? 'bg-indigo-950/70 text-white border-indigo-500/40 shadow-sm'
+                        : 'border-transparent hover:bg-slate-800/60 text-slate-300'
+                    }`}
+                  >
+                    <img
+                      src={contact.avatar}
+                      alt=""
+                      className="w-11 h-11 rounded-full border border-slate-700 object-cover bg-slate-800"
+                    />
+                    <div className="text-left flex-1 min-w-0">
+                      <div className="font-semibold text-sm truncate flex items-center justify-between">
+                        <span className="text-white">{contact.username}</span>
+                        <div className="flex items-center gap-1">
+                          {contact.environment === 'church' && (
+                            <span className="text-[9px] bg-purple-950 text-purple-300 border border-purple-800/60 px-1.5 py-0.2 rounded-full font-bold">
+                              ⛪ Iglesia
+                            </span>
+                          )}
+                          {contact.environment === 'work' && (
+                            <span className="text-[9px] bg-cyan-950 text-cyan-300 border border-cyan-800/60 px-1.5 py-0.2 rounded-full font-bold">
+                              💼 Trabajo
+                            </span>
+                          )}
+                          <span className="text-[10px] text-indigo-400/80 capitalize font-mono px-1.5 py-0.5 rounded bg-slate-800/80">
+                            {contact.role}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="text-xs text-slate-400 truncate flex items-center gap-1 mt-0.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" /> Canal seguro E2EE
+                      </div>
                     </div>
-                    <div className="text-xs text-slate-400 truncate flex items-center gap-1 mt-0.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" /> Canal seguro E2EE
-                    </div>
-                  </div>
-                </button>
-              ))
+                  </button>
+                ))
             )
           ) : (
             /* Mirror View Selection for Kids < 10 */
@@ -397,6 +503,21 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
 
               {/* Chat action: Clear chat & photos */}
               <div className="flex items-center gap-2">
+                {activeContact.role === 'guardian' && activeContact.id !== currentUser.id && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setConnectTargetGuardian(activeContact);
+                      setShowConnectKidsModal(true);
+                    }}
+                    className="text-xs text-purple-200 hover:text-white px-2.5 py-1.5 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 flex items-center gap-1.5 transition-colors shadow-sm"
+                    title="Conectar a nuestros hijos"
+                  >
+                    <Handshake className="w-3.5 h-3.5 text-purple-400" />
+                    <span className="hidden sm:inline">Conectar Hijos</span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={onOpenPhotosVault}
@@ -599,6 +720,29 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
         guardianId={currentUser.id}
         onChildCreated={() => {
           if (onRefreshContacts) onRefreshContacts();
+        }}
+      />
+
+      <ConnectKidsModal
+        isOpen={showConnectKidsModal}
+        onClose={() => setShowConnectKidsModal(false)}
+        currentUser={currentUser}
+        targetGuardian={connectTargetGuardian}
+        myChildren={childrenList}
+        onSuccess={() => {
+          if (onRefreshContacts) onRefreshContacts();
+          if (onRefreshHandshakes) onRefreshHandshakes();
+        }}
+      />
+
+      <HandshakeRequestsModal
+        isOpen={showHandshakesModal}
+        onClose={() => setShowHandshakesModal(false)}
+        currentUser={currentUser}
+        handshakes={handshakes}
+        onRefresh={() => {
+          if (onRefreshContacts) onRefreshContacts();
+          if (onRefreshHandshakes) onRefreshHandshakes();
         }}
       />
     </div>
