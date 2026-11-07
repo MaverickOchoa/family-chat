@@ -278,15 +278,18 @@ app.post('/api/guardian/handshake/respond', (req, res) => {
   }
 });
 
-// 2. Login by Username and optional Password
+// 2. Login by Username or Email and optional Password
 app.post('/api/auth/login', (req, res) => {
   const { username, password, publicKey } = req.body;
   if (!username) {
     return res.status(400).json({ error: 'Username is required.' });
   }
-  const user = db.getUserByUsername(username);
+  let user = db.getUserByUsername(username);
   if (!user) {
-    return res.status(404).json({ error: 'Usuario no encontrado. Revisa el nombre o regístrate.' });
+    user = db.getUserByEmail(username);
+  }
+  if (!user) {
+    return res.status(404).json({ error: 'Usuario no encontrado. Revisa el nombre o regístrate en "Crear Cuenta".' });
   }
 
   // Validate password if user has one set
