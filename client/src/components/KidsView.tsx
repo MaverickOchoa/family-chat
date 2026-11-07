@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Play, Pause, Smile, Sparkles, Send, Trash2, Edit3, Eraser, Image as ImageIcon, Lock } from 'lucide-react';
+import { ArrowLeft, Play, Pause, Smile, Sparkles, Send, Trash2, Edit3, Eraser, Image as ImageIcon, Lock, Camera } from 'lucide-react';
 import { AudioRecorder } from './AudioRecorder';
 import { PhotoSender } from './PhotoSender';
 import { DeleteOptionsModal } from './DeleteOptionsModal';
 import { EditMessageModal } from './EditMessageModal';
 import { ClearChatModal } from './ClearChatModal';
+import { AvatarEditorModal } from './AvatarEditorModal';
 
 interface KidsViewProps {
   currentUser: any;
@@ -23,6 +24,7 @@ interface KidsViewProps {
   onOpenPhotosVault: () => void;
   unlockedProtectedPhotos?: string[];
   onUnlockProtectedPhoto?: (msgId: string) => void;
+  onUserUpdated?: (user: any) => void;
 }
 
 export const KidsView: React.FC<KidsViewProps> = ({
@@ -41,13 +43,15 @@ export const KidsView: React.FC<KidsViewProps> = ({
   onLogout,
   onOpenPhotosVault,
   unlockedProtectedPhotos,
-  onUnlockProtectedPhoto
+  onUnlockProtectedPhoto,
+  onUserUpdated
 }) => {
   const [inputText, setInputText] = useState('');
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
   const [deleteTargetMsg, setDeleteTargetMsg] = useState<any | null>(null);
   const [editTargetMsg, setEditTargetMsg] = useState<any | null>(null);
   const [showClearModal, setShowClearModal] = useState(false);
+  const [showAvatarModal, setShowAvatarModal] = useState(false);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -92,17 +96,28 @@ export const KidsView: React.FC<KidsViewProps> = ({
             </button>
           )}
           <div className="flex items-center gap-2 sm:gap-3">
-            <img
-              src={activeContact ? activeContact.avatar : currentUser.avatar}
-              alt="Avatar"
-              className="w-9 h-9 sm:w-11 sm:h-11 rounded-full border-2 border-white shadow-sm bg-white"
-            />
+            <div
+              onClick={() => !activeContact && setShowAvatarModal(true)}
+              className={`relative ${!activeContact ? 'cursor-pointer group' : ''}`}
+              title={!activeContact ? 'Cambiar tu avatar divertido' : undefined}
+            >
+              <img
+                src={activeContact ? activeContact.avatar : currentUser.avatar}
+                alt="Avatar"
+                className="w-9 h-9 sm:w-11 sm:h-11 rounded-full border-2 border-white shadow-sm bg-white object-cover"
+              />
+              {!activeContact && (
+                <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
+                  <Camera className="w-3.5 h-3.5" />
+                </div>
+              )}
+            </div>
             <div>
               <h1 className="text-base sm:text-lg font-black text-amber-900 tracking-wide truncate max-w-[160px] sm:max-w-xs">
                 {activeContact ? activeContact.username : `¡Hola, ${currentUser.username}! 🌟`}
               </h1>
               <span className="text-[10px] sm:text-xs font-bold text-amber-700 bg-amber-200/80 px-2 py-0.5 rounded-full inline-block">
-                {activeContact ? 'Familiar Conectado' : 'Tu espacio seguro'}
+                {activeContact ? 'Familiar Conectado' : 'Tu espacio seguro (Toca foto para cambiar)'}
               </span>
             </div>
           </div>
@@ -343,6 +358,15 @@ export const KidsView: React.FC<KidsViewProps> = ({
         contactName={activeContact?.username || ''}
         isGuardian={currentUser.role === 'guardian'}
         theme="kid"
+      />
+
+      <AvatarEditorModal
+        isOpen={showAvatarModal}
+        onClose={() => setShowAvatarModal(false)}
+        currentUser={currentUser}
+        onAvatarUpdated={(newAvatar) => {
+          if (onUserUpdated) onUserUpdated({ ...currentUser, avatar: newAvatar });
+        }}
       />
     </div>
   );

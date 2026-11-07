@@ -6,7 +6,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
 import { db, STORAGE_DIR } from './db.js';
-import type { UserProfile, WSClientMessage, EncryptedMessagePacket, PairingInvitation } from './types.js';
+import type { UserProfile, UserRole, WSClientMessage, EncryptedMessagePacket, PairingInvitation } from './types.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -47,10 +47,20 @@ app.get('/', (_req, res) => {
 // 1. Register User (No phone number required)
 app.post('/api/auth/register', (req, res) => {
   try {
-    const { username, password, role, age, guardianId, publicKey, avatar } = req.body;
+    const { username, email, password, role, age, guardianId, publicKey, avatar } = req.body;
 
     if (!username || !role || !publicKey) {
       return res.status(400).json({ error: 'Username, role and publicKey are required.' });
+    }
+
+    if (role === 'guardian') {
+      if (!email || !/\S+@\S+\.\S+/.test(email)) {
+        return res.status(400).json({ error: 'Se requiere un correo electrónico válido para la cuenta de Guardián.' });
+      }
+      const existingEmail = db.getUserByEmail(email);
+      if (existingEmail) {
+        return res.status(409).json({ error: 'Este correo electrónico ya está registrado.' });
+      }
     }
 
     if (password) {
@@ -67,15 +77,27 @@ app.post('/api/auth/register', (req, res) => {
       return res.status(409).json({ error: 'Username already in use. Please choose another.' });
     }
 
+    let defaultAvatar = avatar;
+    if (!defaultAvatar) {
+      if (role === 'kid') {
+        defaultAvatar = `https://api.dicebear.com/7.x/fun-emoji/svg?seed=${encodeURIComponent(username)}`;
+      } else if (role === 'teen') {
+        defaultAvatar = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(username)}&backgroundColor=0891b2,0d9488,4f46e5`;
+      } else {
+        defaultAvatar = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(username)}&backgroundColor=4f46e5,0284c7,7c3aed,059669`;
+      }
+    }
+
     const newUser: UserProfile = {
       id: uuidv4(),
       username: username.trim(),
+      email: email ? email.trim().toLowerCase() : undefined,
       passwordHash: password ? String(password) : undefined,
       role: role as 'guardian' | 'teen' | 'kid',
-      age: age ? Number(age) : undefined,
+      age: age ? Number(age) : (role === 'guardian' ? 35 : undefined),
       guardianId: guardianId || undefined,
       publicKey,
-      avatar: avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(username)}`,
+      avatar: defaultAvatar,
       createdAt: new Date().toISOString()
     };
 
@@ -89,6 +111,66 @@ app.post('/api/auth/register', (req, res) => {
     return res.json({ success: true, user: newUser });
   } catch (err: any) {
     console.error('Registration error:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 1.1 Update User Avatar
+app.post('/api/users/:id/avatar', (req, res) => {
+  const { id } = req.params;
+  const { avatar } = req.body;
+  if (!avatar) {
+    return res.status(400).json({ error: 'Avatar is required.' });
+  }
+  const updated = db.updateUser(id, { avatar });
+  if (!updated) {
+    return res.status(404).json({ error: 'User not found.' });
+  }
+  return res.json({ success: true, user: updated });
+});
+
+// 1.2 Create Child account directly by Guardian
+app.post('/api/guardian/create-child', (req, res) => {
+  try {
+    const { guardianId, username, password, age, avatar, publicKey } = req.body;
+    if (!guardianId || !username) {
+      return res.status(400).json({ error: 'guardianId and username are required.' });
+    }
+    const guardian = db.getUser(guardianId);
+    if (!guardian || guardian.role !== 'guardian') {
+      return res.status(403).json({ error: 'Only legal guardians can create children accounts.' });
+    }
+    const existing = db.getUserByUsername(username);
+    if (existing) {
+      return res.status(409).json({ error: 'Este nombre de usuario ya está en uso. Elige otro para tu hijo/a.' });
+    }
+
+    const childAge = age ? Number(age) : 8;
+    const childRole: UserRole = childAge >= 10 ? 'teen' : 'kid';
+    const defaultAvatar = avatar || (
+      childRole === 'teen'
+        ? `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(username)}&backgroundColor=0891b2,0d9488,4f46e5`
+        : `https://api.dicebear.com/7.x/fun-emoji/svg?seed=${encodeURIComponent(username)}`
+    );
+
+    const newChild: UserProfile = {
+      id: uuidv4(),
+      username: username.trim(),
+      passwordHash: password ? String(password) : undefined,
+      role: childRole,
+      age: childAge,
+      guardianId,
+      publicKey: publicKey || '',
+      avatar: defaultAvatar,
+      createdAt: new Date().toISOString()
+    };
+
+    db.createUser(newChild);
+    db.addContact(newChild.id, guardianId, guardianId);
+
+    return res.json({ success: true, user: newChild });
+  } catch (err: any) {
+    console.error('Create child error:', err);
     return res.status(500).json({ error: err.message });
   }
 });

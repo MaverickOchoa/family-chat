@@ -69,6 +69,20 @@ class Database {
     return Object.values(this.data.users).find(u => u.username.toLowerCase() === clean);
   }
 
+  getUserByEmail(email: string): UserProfile | undefined {
+    const clean = email.trim().toLowerCase();
+    return Object.values(this.data.users).find(u => u.email && u.email.toLowerCase() === clean);
+  }
+
+  updateUser(id: string, updates: Partial<UserProfile>): UserProfile | undefined {
+    const user = this.data.users[id];
+    if (!user) return undefined;
+    const updated = { ...user, ...updates };
+    this.data.users[id] = updated;
+    this.save();
+    return updated;
+  }
+
   createUser(user: UserProfile): UserProfile {
     this.data.users[user.id] = user;
     this.save();

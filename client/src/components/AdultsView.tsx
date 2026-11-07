@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Send, Shield, UserPlus, Eye, Play, Pause, Trash2, Users, Edit3, Eraser, Image as ImageIcon, Lock } from 'lucide-react';
+import { ArrowLeft, Send, Shield, UserPlus, Eye, Play, Pause, Trash2, Users, Edit3, Eraser, Image as ImageIcon, Lock, Sparkles, Camera } from 'lucide-react';
 import { AudioRecorder } from './AudioRecorder';
 import { PhotoSender } from './PhotoSender';
 import { DeleteOptionsModal } from './DeleteOptionsModal';
 import { EditMessageModal } from './EditMessageModal';
 import { ClearChatModal } from './ClearChatModal';
+import { AvatarEditorModal } from './AvatarEditorModal';
+import { AddChildModal } from './AddChildModal';
 
 interface AdultsViewProps {
   currentUser: any;
@@ -26,6 +28,8 @@ interface AdultsViewProps {
   onOpenPhotosVault: () => void;
   unlockedProtectedPhotos?: string[];
   onUnlockProtectedPhoto?: (msgId: string) => void;
+  onRefreshContacts?: () => void;
+  onUserUpdated?: (user: any) => void;
 }
 
 export const AdultsView: React.FC<AdultsViewProps> = ({
@@ -47,7 +51,9 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
   onLogout,
   onOpenPhotosVault,
   unlockedProtectedPhotos,
-  onUnlockProtectedPhoto
+  onUnlockProtectedPhoto,
+  onRefreshContacts,
+  onUserUpdated
 }) => {
   const [activeTab, setActiveTab] = useState<'chats' | 'mirror'>('chats');
   const [selectedMirrorChild, setSelectedMirrorChild] = useState<any>(null);
@@ -56,6 +62,8 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
   const [deleteTargetMsg, setDeleteTargetMsg] = useState<any | null>(null);
   const [editTargetMsg, setEditTargetMsg] = useState<any | null>(null);
   const [showClearModal, setShowClearModal] = useState(false);
+  const [showAvatarModal, setShowAvatarModal] = useState(false);
+  const [showAddChildModal, setShowAddChildModal] = useState(false);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -103,11 +111,20 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
         {/* User profile header */}
         <header className="p-4 border-b border-slate-800 bg-slate-900 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-3">
-            <img
-              src={currentUser.avatar}
-              alt="Avatar"
-              className="w-10 h-10 rounded-full border border-indigo-500/40 object-cover bg-slate-800 shadow"
-            />
+            <div
+              onClick={() => setShowAvatarModal(true)}
+              className="relative cursor-pointer group"
+              title="Toca para cambiar tu foto de perfil"
+            >
+              <img
+                src={currentUser.avatar}
+                alt="Avatar"
+                className="w-10 h-10 rounded-full border border-indigo-500/40 object-cover bg-slate-800 shadow"
+              />
+              <div className="absolute inset-0 rounded-full bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
+                <Camera className="w-4 h-4" />
+              </div>
+            </div>
             <div>
               <div className="font-semibold text-sm text-white">{currentUser.username}</div>
               <div className="text-[11px] font-medium text-indigo-400 flex items-center gap-1">
@@ -158,6 +175,15 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
           >
             <ImageIcon className="w-4 h-4 text-purple-400" /> 📸 Bóveda de Fotos Familiar
           </button>
+
+          {currentUser.role === 'guardian' && (
+            <button
+              onClick={() => setShowAddChildModal(true)}
+              className="w-full py-2 px-3 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 font-semibold text-xs flex items-center justify-center gap-2 transition-all shadow-sm"
+            >
+              <Sparkles className="w-4 h-4 text-amber-400" /> + Agregar Hijo/a a la Familia
+            </button>
+          )}
 
           <button
             onClick={onOpenInviteModal}
@@ -556,6 +582,24 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
             : undefined
         }
         theme="adult"
+      />
+
+      <AvatarEditorModal
+        isOpen={showAvatarModal}
+        onClose={() => setShowAvatarModal(false)}
+        currentUser={currentUser}
+        onAvatarUpdated={(newAvatar) => {
+          if (onUserUpdated) onUserUpdated({ ...currentUser, avatar: newAvatar });
+        }}
+      />
+
+      <AddChildModal
+        isOpen={showAddChildModal}
+        onClose={() => setShowAddChildModal(false)}
+        guardianId={currentUser.id}
+        onChildCreated={() => {
+          if (onRefreshContacts) onRefreshContacts();
+        }}
       />
     </div>
   );

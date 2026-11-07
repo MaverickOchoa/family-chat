@@ -3,6 +3,7 @@ export type UserRole = 'guardian' | 'teen' | 'kid';
 export interface UserProfile {
   id: string;
   username: string;
+  email?: string;
   passwordHash?: string;
   role: UserRole;
   age?: number;

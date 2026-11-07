@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Send, ShieldCheck, Play, Pause, Trash2, Edit3, Eraser, Image as ImageIcon, Lock } from 'lucide-react';
+import { ArrowLeft, Send, ShieldCheck, Play, Pause, Trash2, Edit3, Eraser, Image as ImageIcon, Lock, Camera } from 'lucide-react';
 import { AudioRecorder } from './AudioRecorder';
 import { PhotoSender } from './PhotoSender';
 import { DeleteOptionsModal } from './DeleteOptionsModal';
 import { EditMessageModal } from './EditMessageModal';
 import { ClearChatModal } from './ClearChatModal';
+import { AvatarEditorModal } from './AvatarEditorModal';
 
 interface TeensViewProps {
   currentUser: any;
@@ -23,6 +24,7 @@ interface TeensViewProps {
   onOpenPhotosVault: () => void;
   unlockedProtectedPhotos?: string[];
   onUnlockProtectedPhoto?: (msgId: string) => void;
+  onUserUpdated?: (user: any) => void;
 }
 
 export const TeensView: React.FC<TeensViewProps> = ({
@@ -41,13 +43,15 @@ export const TeensView: React.FC<TeensViewProps> = ({
   onLogout,
   onOpenPhotosVault,
   unlockedProtectedPhotos,
-  onUnlockProtectedPhoto
+  onUnlockProtectedPhoto,
+  onUserUpdated
 }) => {
   const [inputText, setInputText] = useState('');
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
   const [deleteTargetMsg, setDeleteTargetMsg] = useState<any | null>(null);
   const [editTargetMsg, setEditTargetMsg] = useState<any | null>(null);
   const [showClearModal, setShowClearModal] = useState(false);
+  const [showAvatarModal, setShowAvatarModal] = useState(false);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -84,8 +88,15 @@ export const TeensView: React.FC<TeensViewProps> = ({
       }`}>
         <header className="p-4 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="relative">
-              <img src={currentUser.avatar} alt="Avatar" className="w-10 h-10 rounded-full border border-cyan-500/50 bg-slate-800" />
+            <div
+              onClick={() => setShowAvatarModal(true)}
+              className="relative cursor-pointer group"
+              title="Cambiar foto de perfil"
+            >
+              <img src={currentUser.avatar} alt="Avatar" className="w-10 h-10 rounded-full border border-cyan-500/50 bg-slate-800 object-cover" />
+              <div className="absolute inset-0 rounded-full bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
+                <Camera className="w-3.5 h-3.5" />
+              </div>
               <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-slate-900" />
             </div>
             <div>
@@ -338,6 +349,15 @@ export const TeensView: React.FC<TeensViewProps> = ({
         contactName={activeContact?.username || ''}
         isGuardian={currentUser.role === 'guardian'}
         theme="teen"
+      />
+
+      <AvatarEditorModal
+        isOpen={showAvatarModal}
+        onClose={() => setShowAvatarModal(false)}
+        currentUser={currentUser}
+        onAvatarUpdated={(newAvatar) => {
+          if (onUserUpdated) onUserUpdated({ ...currentUser, avatar: newAvatar });
+        }}
       />
     </div>
   );

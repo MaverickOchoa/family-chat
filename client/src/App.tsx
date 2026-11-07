@@ -15,7 +15,7 @@ import { AdultsView } from './components/AdultsView';
 import { InviteModal } from './components/InviteModal';
 import { ParentPinModal } from './components/ParentPinModal';
 import { FamilyPhotosVault } from './components/FamilyPhotosVault';
-import { Shield, Camera, Lock, User, Upload } from 'lucide-react';
+import { Shield, Camera, Lock, User, Upload, Mail } from 'lucide-react';
 import { API_BASE, WS_BASE } from './config';
 
 // Universal UUID generator that works in any context (HTTP, LAN IP, older mobile browsers)
@@ -67,6 +67,7 @@ export function App() {
   // Auth Form State
   const [authMode, setAuthMode] = useState<'login' | 'register'>('register');
   const [usernameInput, setUsernameInput] = useState('');
+  const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const avatarFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -940,6 +941,10 @@ export function App() {
 
     try {
       if (authMode === 'register') {
+        if (!emailInput.trim() || !/\S+@\S+\.\S+/.test(emailInput)) {
+          throw new Error('Por favor ingresa un correo electrónico válido para tu cuenta de Guardián.');
+        }
+
         const pwdError = validatePassword(passwordInput);
         if (pwdError) {
           throw new Error(pwdError);
@@ -947,31 +952,16 @@ export function App() {
 
         const keyPair = await generateIdentityKeyPair();
 
-        let guardianId: string | undefined = undefined;
-        if ((roleInput === 'kid' || roleInput === 'teen') && guardianUsernameInput.trim()) {
-          const gRes = await fetch(`${API_BASE}/api/auth/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: guardianUsernameInput.trim() })
-          });
-          const gData = await gRes.json();
-          if (!gData.success) {
-            throw new Error(`El usuario guardián @${guardianUsernameInput} no existe.`);
-          }
-          guardianId = gData.user.id;
-        }
-
         const res = await fetch(`${API_BASE}/api/auth/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             username: usernameInput.trim(),
+            email: emailInput.trim(),
             password: passwordInput.trim(),
-            role: roleInput,
-            age: ageInput,
-            guardianId,
-            publicKey: keyPair.publicKeyBase64,
-            avatar: avatarPreview || undefined
+            role: 'guardian',
+            age: 35,
+            publicKey: keyPair.publicKeyBase64
           })
         });
 
@@ -1039,7 +1029,13 @@ export function App() {
     setActiveContact(null);
     setMessages([]);
     setPasswordInput('');
+    setEmailInput('');
     setAvatarPreview(null);
+  };
+
+  const handleUserUpdated = (updatedUser: any) => {
+    setCurrentUser(updatedUser);
+    localStorage.setItem('family_chat_user', JSON.stringify(updatedUser));
   };
 
   const activeChatMessages = messages.filter(
@@ -1091,49 +1087,6 @@ export function App() {
           </div>
 
           <form onSubmit={handleAuth} className="space-y-4">
-            {authMode === 'register' && (
-              <div className="flex flex-col items-center justify-center mb-4">
-                <div
-                  className="relative group cursor-pointer"
-                  onClick={() => avatarFileInputRef.current?.click()}
-                  title="Toca para subir tu foto de perfil"
-                >
-                  <img
-                    src={displayAvatar}
-                    alt="Avatar"
-                    className="w-20 h-20 rounded-full border-2 border-indigo-500/60 object-cover bg-slate-800 shadow-md"
-                  />
-                  <div className="absolute inset-0 bg-black/40 rounded-full flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Camera className="w-6 h-6 text-white" />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); avatarFileInputRef.current?.click(); }}
-                    className="absolute -bottom-1 -right-1 p-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full shadow-lg border-2 border-slate-900"
-                    title="Subir foto de perfil"
-                  >
-                    <Camera className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                <input
-                  type="file"
-                  ref={avatarFileInputRef}
-                  accept="image/*"
-                  onChange={handleAvatarSelect}
-                  className="hidden"
-                />
-
-                <button
-                  type="button"
-                  onClick={() => avatarFileInputRef.current?.click()}
-                  className="text-xs text-indigo-400 hover:text-indigo-300 font-medium mt-2 flex items-center gap-1.5 transition-colors"
-                >
-                  <Upload className="w-3.5 h-3.5" /> {avatarPreview ? 'Cambiar foto de perfil' : 'Subir tu foto de perfil'}
-                </button>
-              </div>
-            )}
-
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1 flex items-center gap-1.5">
                 <User className="w-3.5 h-3.5 text-indigo-400" /> Nombre de Usuario (Sin teléfono)
@@ -1143,10 +1096,29 @@ export function App() {
                 required
                 value={usernameInput}
                 onChange={(e) => setUsernameInput(e.target.value)}
-                placeholder="ej: papa, mama, sofia, abuelita"
+                placeholder="ej: papa, mama, maverick"
                 className="w-full py-2.5 px-4 rounded-xl bg-slate-800 border border-slate-700 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-indigo-500"
               />
             </div>
+
+            {authMode === 'register' && (
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1 flex items-center gap-1.5">
+                  <Mail className="w-3.5 h-3.5 text-indigo-400" /> Correo Electrónico
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={emailInput}
+                  onChange={(e) => setEmailInput(e.target.value)}
+                  placeholder="tu.correo@ejemplo.com"
+                  className="w-full py-2.5 px-4 rounded-xl bg-slate-800 border border-slate-700 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-indigo-500"
+                />
+                <span className="text-[10px] text-slate-400 mt-1 block">
+                  Para recuperación de cuenta y avisos de seguridad familiar.
+                </span>
+              </div>
+            )}
 
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1 flex items-center gap-1.5">
@@ -1181,83 +1153,6 @@ export function App() {
                 </div>
               )}
             </div>
-
-            {authMode === 'register' && (
-              <>
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">¿Quién usará esta cuenta?</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => { setRoleInput('guardian'); setAgeInput(38); }}
-                      className={`py-2 px-2 rounded-xl text-xs font-semibold border transition-all ${
-                        roleInput === 'guardian'
-                          ? 'border-indigo-500 bg-indigo-500/20 text-indigo-300 shadow-sm'
-                          : 'border-slate-800 bg-slate-800/50 text-slate-400 hover:border-slate-700'
-                      }`}
-                    >
-                      🛡️ Adulto / Papá
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setRoleInput('teen'); setAgeInput(14); }}
-                      className={`py-2 px-2 rounded-xl text-xs font-semibold border transition-all ${
-                        roleInput === 'teen'
-                          ? 'border-cyan-500 bg-cyan-500/20 text-cyan-300 shadow-sm'
-                          : 'border-slate-800 bg-slate-800/50 text-slate-400 hover:border-slate-700'
-                      }`}
-                    >
-                      ⚡ Joven (10-17)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setRoleInput('kid'); setAgeInput(7); }}
-                      className={`py-2 px-2 rounded-xl text-xs font-semibold border transition-all ${
-                        roleInput === 'kid'
-                          ? 'border-amber-500 bg-amber-500/20 text-amber-300 shadow-sm'
-                          : 'border-slate-800 bg-slate-800/50 text-slate-400 hover:border-slate-700'
-                      }`}
-                    >
-                      🌟 Niño (&lt;10)
-                    </button>
-                  </div>
-                </div>
-
-                {roleInput !== 'guardian' && (
-                  <div>
-                    <label className="block text-xs font-medium text-slate-300 mb-1">
-                      Edad del menor: {ageInput} años
-                    </label>
-                    <input
-                      type="range"
-                      min={roleInput === 'teen' ? 10 : 4}
-                      max={roleInput === 'teen' ? 17 : 9}
-                      value={ageInput}
-                      onChange={(e) => setAgeInput(Number(e.target.value))}
-                      className="w-full accent-indigo-500"
-                    />
-                  </div>
-                )}
-
-                {(roleInput === 'kid' || roleInput === 'teen') && (
-                  <div>
-                    <label className="block text-xs font-medium text-slate-300 mb-1">
-                      Nombre de Usuario del Papá/Mamá Guardián
-                    </label>
-                    <input
-                      type="text"
-                      value={guardianUsernameInput}
-                      onChange={(e) => setGuardianUsernameInput(e.target.value)}
-                      placeholder="ej: Maverick"
-                      className="w-full py-2.5 px-4 rounded-xl bg-slate-800 border border-slate-700 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-indigo-500"
-                    />
-                    <span className="text-[10px] text-slate-400 mt-1 block">
-                      Vinculará la cuenta del menor a la gobernanza y supervisión del padre.
-                    </span>
-                  </div>
-                )}
-              </>
-            )}
 
             {authError && (
               <div className="p-3 bg-red-950/40 border border-red-800/60 rounded-xl text-red-400 text-xs">
@@ -1334,6 +1229,7 @@ export function App() {
           onOpenPhotosVault={() => setCurrentTab('photos')}
           unlockedProtectedPhotos={unlockedProtectedPhotos}
           onUnlockProtectedPhoto={handleUnlockProtectedPhoto}
+          onUserUpdated={handleUserUpdated}
         />
         <ParentPinModal
           isOpen={showPinModal}
@@ -1373,6 +1269,7 @@ export function App() {
           onOpenPhotosVault={() => setCurrentTab('photos')}
           unlockedProtectedPhotos={unlockedProtectedPhotos}
           onUnlockProtectedPhoto={handleUnlockProtectedPhoto}
+          onUserUpdated={handleUserUpdated}
         />
 
         <ParentPinModal
@@ -1415,6 +1312,8 @@ export function App() {
         onOpenPhotosVault={() => setCurrentTab('photos')}
         unlockedProtectedPhotos={unlockedProtectedPhotos}
         onUnlockProtectedPhoto={handleUnlockProtectedPhoto}
+        onUserUpdated={handleUserUpdated}
+        onRefreshContacts={fetchContacts}
       />
 
       <InviteModal
