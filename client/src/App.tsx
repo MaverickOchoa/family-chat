@@ -30,6 +30,23 @@ function safeUUID(): string {
   });
 }
 
+// Password validation rules: minimum 8 chars, 1 uppercase, 1 lowercase, 1 symbol
+function validatePassword(pwd: string): string | null {
+  if (pwd.length < 8) {
+    return 'La contraseña debe tener al menos 8 caracteres.';
+  }
+  if (!/[A-Z]/.test(pwd)) {
+    return 'La contraseña debe incluir al menos una letra mayúscula.';
+  }
+  if (!/[a-z]/.test(pwd)) {
+    return 'La contraseña debe incluir al menos una letra minúscula.';
+  }
+  if (!/[^A-Za-z0-9]/.test(pwd)) {
+    return 'La contraseña debe incluir al menos un signo o símbolo especial (!@#$%&*...).';
+  }
+  return null;
+}
+
 export function App() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [userKeyPair, setUserKeyPair] = useState<UserKeyPair | null>(null);
@@ -923,8 +940,9 @@ export function App() {
 
     try {
       if (authMode === 'register') {
-        if (!passwordInput.trim()) {
-          throw new Error('Por favor define una contraseña para proteger tu cuenta.');
+        const pwdError = validatePassword(passwordInput);
+        if (pwdError) {
+          throw new Error(pwdError);
         }
 
         const keyPair = await generateIdentityKeyPair();
@@ -1142,6 +1160,26 @@ export function App() {
                 placeholder={authMode === 'register' ? 'Crea una contraseña segura' : 'Tu contraseña (si aplica)'}
                 className="w-full py-2.5 px-4 rounded-xl bg-slate-800 border border-slate-700 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-indigo-500"
               />
+
+              {authMode === 'register' && (
+                <div className="mt-2 p-2.5 bg-slate-800/60 rounded-xl border border-slate-700/60 text-[11px] space-y-1">
+                  <span className="text-slate-400 font-semibold block text-[10px] uppercase tracking-wider">Requisitos de contraseña:</span>
+                  <div className="grid grid-cols-2 gap-1 text-[11px]">
+                    <span className={passwordInput.length >= 8 ? 'text-emerald-400 font-medium' : 'text-slate-400'}>
+                      {passwordInput.length >= 8 ? '✓' : '•'} Mínimo 8 caracteres
+                    </span>
+                    <span className={/[A-Z]/.test(passwordInput) ? 'text-emerald-400 font-medium' : 'text-slate-400'}>
+                      {/[A-Z]/.test(passwordInput) ? '✓' : '•'} Una mayúscula
+                    </span>
+                    <span className={/[a-z]/.test(passwordInput) ? 'text-emerald-400 font-medium' : 'text-slate-400'}>
+                      {/[a-z]/.test(passwordInput) ? '✓' : '•'} Una minúscula
+                    </span>
+                    <span className={/[^A-Za-z0-9]/.test(passwordInput) ? 'text-emerald-400 font-medium' : 'text-slate-400'}>
+                      {/[^A-Za-z0-9]/.test(passwordInput) ? '✓' : '•'} Un signo (!@#$...)
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {authMode === 'register' && (
@@ -1185,17 +1223,21 @@ export function App() {
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">Edad: {ageInput} años</label>
-                  <input
-                    type="range"
-                    min={4}
-                    max={85}
-                    value={ageInput}
-                    onChange={(e) => setAgeInput(Number(e.target.value))}
-                    className="w-full accent-indigo-500"
-                  />
-                </div>
+                {roleInput !== 'guardian' && (
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1">
+                      Edad del menor: {ageInput} años
+                    </label>
+                    <input
+                      type="range"
+                      min={roleInput === 'teen' ? 10 : 4}
+                      max={roleInput === 'teen' ? 17 : 9}
+                      value={ageInput}
+                      onChange={(e) => setAgeInput(Number(e.target.value))}
+                      className="w-full accent-indigo-500"
+                    />
+                  </div>
+                )}
 
                 {(roleInput === 'kid' || roleInput === 'teen') && (
                   <div>

@@ -53,6 +53,15 @@ app.post('/api/auth/register', (req, res) => {
       return res.status(400).json({ error: 'Username, role and publicKey are required.' });
     }
 
+    if (password) {
+      const pwd = String(password);
+      if (pwd.length < 8 || !/[A-Z]/.test(pwd) || !/[a-z]/.test(pwd) || !/[^A-Za-z0-9]/.test(pwd)) {
+        return res.status(400).json({
+          error: 'La contraseña debe tener al menos 8 caracteres, una mayúscula, una minúscula y un signo especial.'
+        });
+      }
+    }
+
     const existing = db.getUserByUsername(username);
     if (existing) {
       return res.status(409).json({ error: 'Username already in use. Please choose another.' });
