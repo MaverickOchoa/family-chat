@@ -1,4 +1,5 @@
 import http from 'node:http';
+import fs from 'node:fs';
 import path from 'node:path';
 import express from 'express';
 import cors from 'cors';
@@ -432,11 +433,20 @@ app.post('/api/invitations/accept', (req, res) => {
 });
 
 // 7. Upload Encrypted Media (Zero-Knowledge Ciphertext Blob)
-app.post('/api/media/upload', upload.single('blob'), (req, res) => {
+app.post('/api/media/upload', upload.single('blob'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded.' });
   }
   const mediaUrl = `/api/media/${req.file.filename}`;
+
+  // Persist permanently to MongoDB Atlas so audio/photos are indestructible across restarts
+  try {
+    const fileBuf = fs.readFileSync(req.file.path);
+    await db.saveMediaBlob(req.file.filename, fileBuf);
+  } catch (err: any) {
+    console.warn('Could not persist media to cloud store:', err.message);
+  }
+
   return res.json({
     success: true,
     mediaUrl,
@@ -444,8 +454,24 @@ app.post('/api/media/upload', upload.single('blob'), (req, res) => {
   });
 });
 
-// 8. Download Encrypted Blob
-app.use('/api/media', express.static(STORAGE_DIR));
+// 8. Download Encrypted Blob (with MongoDB Atlas cloud fallback)
+app.get('/api/media/:filename', async (req, res) => {
+  const { filename } = req.params;
+  const filePath = path.join(STORAGE_DIR, filename);
+  if (fs.existsSync(filePath)) {
+    return res.sendFile(filePath);
+  }
+  // If Render restarted and disk is fresh, recover blob from MongoDB Atlas
+  const blobBuffer = await db.getMediaBlob(filename);
+  if (blobBuffer) {
+    try {
+      fs.writeFileSync(filePath, blobBuffer);
+    } catch (e) {}
+    res.setHeader('Content-Type', 'application/octet-stream');
+    return res.send(blobBuffer);
+  }
+  return res.status(404).json({ error: 'Media not found.' });
+});
 
 // 9. Sync Message History (for offline recovery & active sessions)
 app.get('/api/messages/:userId', (req, res) => {

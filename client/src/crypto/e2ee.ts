@@ -209,6 +209,37 @@ export async function encryptMediaBlob(
   };
 }
 
+// Detect real audio container format from raw decrypted bytes
+export function detectAudioMime(bytes: Uint8Array, fallback: string = 'audio/webm'): string {
+  if (bytes.length >= 4) {
+    // WebM / EBML: 0x1A 0x45 0xDF 0xA3
+    if (bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3) {
+      return 'audio/webm';
+    }
+    // Ogg: 'OggS' (0x4F 0x67 0x67 0x53)
+    if (bytes[0] === 0x4f && bytes[1] === 0x67 && bytes[2] === 0x67 && bytes[3] === 0x53) {
+      return 'audio/ogg';
+    }
+    // MP3: 'ID3' or syncword 0xFF 0xFB/0xF3/0xF2
+    if ((bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33) ||
+        (bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0)) {
+      return 'audio/mpeg';
+    }
+    // WAV: 'RIFF' (0x52 0x49 0x46 0x46)
+    if (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46) {
+      return 'audio/wav';
+    }
+  }
+  if (bytes.length >= 12) {
+    // MP4 / M4A: 'ftyp' at offset 4
+    const ftyp = String.fromCharCode(bytes[4], bytes[5], bytes[6], bytes[7]);
+    if (ftyp === 'ftyp') {
+      return 'audio/mp4';
+    }
+  }
+  return fallback;
+}
+
 // 5. Decrypt Media Blob
 export async function decryptMediaBlob(
   encryptedBlobUrl: string,
@@ -219,6 +250,9 @@ export async function decryptMediaBlob(
   targetMimeType: string
 ): Promise<string> {
   const res = await fetch(encryptedBlobUrl);
+  if (!res.ok) {
+    throw new Error(`Media download failed: HTTP ${res.status}`);
+  }
   const arrayBuffer = await res.arrayBuffer();
   const ciphertext = new Uint8Array(arrayBuffer);
 
@@ -240,6 +274,11 @@ export async function decryptMediaBlob(
     throw new Error('Could not decrypt media ciphertext');
   }
 
-  const blob = new Blob([decryptedBytes], { type: targetMimeType });
+  let finalMime = targetMimeType;
+  if (targetMimeType.startsWith('audio/')) {
+    finalMime = detectAudioMime(decryptedBytes, targetMimeType);
+  }
+
+  const blob = new Blob([decryptedBytes], { type: finalMime });
   return URL.createObjectURL(blob);
 }

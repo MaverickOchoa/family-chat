@@ -65,15 +65,24 @@ export const KidsView: React.FC<KidsViewProps> = ({
     if (playingAudioId === msgId) {
       audioPlayerRef.current?.pause();
       setPlayingAudioId(null);
-    } else {
-      if (audioPlayerRef.current) {
-        audioPlayerRef.current.pause();
-      }
+      return;
+    }
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
+    }
+    try {
       const audio = new Audio(url);
       audioPlayerRef.current = audio;
       setPlayingAudioId(msgId);
-      audio.play();
+      audio.play().catch((err) => {
+        console.warn('Audio play error:', err);
+        setPlayingAudioId(null);
+      });
       audio.onended = () => setPlayingAudioId(null);
+      audio.onerror = () => setPlayingAudioId(null);
+    } catch (e) {
+      console.error('Audio creation error:', e);
+      setPlayingAudioId(null);
     }
   };
 

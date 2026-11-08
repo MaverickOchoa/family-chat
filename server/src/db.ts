@@ -31,6 +31,7 @@ class Database {
 
   private mongoClient: MongoClient | null = null;
   private mongoCollection: Collection | null = null;
+  private mediaCollection: Collection | null = null;
   public mongoError: string | null = null;
 
   constructor() {
@@ -81,6 +82,8 @@ class Database {
       await this.mongoClient.connect();
       const db = this.mongoClient.db('family-chat');
       this.mongoCollection = db.collection('sovereign_store');
+      this.mediaCollection = db.collection('media_blobs');
+      this.mongoError = null;
       console.log('✅ Conectado exitosamente a MongoDB Atlas (Base de Datos Permanente)');
 
       // Fetch cloud state
@@ -157,6 +160,32 @@ class Database {
     } catch (err: any) {
       console.error('Failed to sync to MongoDB Atlas:', err.message);
     }
+  }
+
+  async saveMediaBlob(filename: string, buffer: Buffer): Promise<void> {
+    if (!this.mediaCollection) return;
+    try {
+      await this.mediaCollection.updateOne(
+        { _id: filename as any },
+        { $set: { data: buffer.toString('base64'), size: buffer.length, updatedAt: new Date() } },
+        { upsert: true }
+      );
+    } catch (e: any) {
+      console.error('Failed to save media blob to MongoDB Atlas:', e.message);
+    }
+  }
+
+  async getMediaBlob(filename: string): Promise<Buffer | null> {
+    if (!this.mediaCollection) return null;
+    try {
+      const doc = await this.mediaCollection.findOne({ _id: filename as any });
+      if (doc && (doc as any).data) {
+        return Buffer.from((doc as any).data, 'base64');
+      }
+    } catch (e: any) {
+      console.error('Failed to get media blob from MongoDB Atlas:', e.message);
+    }
+    return null;
   }
 
   // Users

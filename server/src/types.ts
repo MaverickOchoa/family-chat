@@ -60,6 +60,7 @@ export interface EncryptedMessagePacket {
   iv: string;
   type: 'text' | 'image' | 'audio';
   mediaUrl?: string; // Path to encrypted blob if image/audio
+  mediaMimeType?: string;
   mediaSize?: number;
   mediaDuration?: number; // For audio notes in seconds
   senderEphemeralKey?: string;

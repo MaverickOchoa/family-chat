@@ -225,7 +225,7 @@ export function App() {
           pkt.iv,
           pkt.senderEphemeralKey || '',
           userKeyPair.privateKeyBase64,
-          'audio/webm'
+          pkt.mediaMimeType || 'audio/webm'
         );
       } catch (e) {
         console.warn('Failed to decrypt audio:', e);
@@ -363,7 +363,7 @@ export function App() {
                 pkt.iv,
                 pkt.senderEphemeralKey || '',
                 userKeyPair.privateKeyBase64,
-                'audio/webm'
+                pkt.mediaMimeType || 'audio/webm'
               );
             } catch (e) {
               console.warn('Audio decryption error:', e);
@@ -531,6 +531,7 @@ export function App() {
         iv: enc.iv,
         type: 'audio' as const,
         mediaUrl: uploadData.mediaUrl,
+        mediaMimeType: audioBlob.type || 'audio/webm',
         mediaDuration: duration,
         timestamp: Date.now(),
         status: 'sent' as const
