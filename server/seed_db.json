@@ -23,25 +23,33 @@
     },
     "e0fd2534-67be-44a7-9eb9-072ca33f158b": {
       "id": "e0fd2534-67be-44a7-9eb9-072ca33f158b",
-      "username": "Tany",
+      "username": "Tania mama",
       "role": "guardian",
       "age": 35,
       "publicKey": "mDQb4RaduhfzWLzaOPn5QyfdlOAgRZca867+cpWfx34=",
-      "avatar": "https://api.dicebear.com/7.x/bottts/svg?seed=Tany",
-      "createdAt": "2026-10-30T00:38:51.452Z"
+      "avatar": "https://api.dicebear.com/7.x/initials/svg?seed=Tania%20mama&backgroundColor=ec4899,8b5cf6,f43f5e",
+      "createdAt": "2026-10-30T00:38:51.452Z",
+      "passwordHash": "cuentaO2026"
     },
     "4574e70f-aa62-4be9-9e01-113561a9ab52": {
       "id": "4574e70f-aa62-4be9-9e01-113561a9ab52",
       "username": "Re",
       "role": "kid",
       "age": 7,
-      "guardianId": "19325479-a202-4735-99d2-0cf09aec9e82",
+      "guardianId": "huttman-ochoa-guardian-id",
       "publicKey": "kLHNPLruuKQXEDRIMcrhFpA+qaDJY7SVvyqVSdwxN3s=",
       "avatar": "https://api.dicebear.com/7.x/bottts/svg?seed=Re",
       "createdAt": "2026-10-30T00:54:14.623Z"
     }
   },
   "contacts": [
+    {
+      "id": "contact-tania-re",
+      "userId": "e0fd2534-67be-44a7-9eb9-072ca33f158b",
+      "contactId": "4574e70f-aa62-4be9-9e01-113561a9ab52",
+      "approvedByGuardianId": "huttman-ochoa-guardian-id",
+      "createdAt": "2026-11-07T00:00:00.000Z"
+    },
     {
       "id": "contact-huttman-tany",
       "userId": "huttman-ochoa-guardian-id",

@@ -166,7 +166,13 @@ class Database {
 
   getUserByUsername(username: string): UserProfile | undefined {
     const clean = username.trim().toLowerCase();
-    return Object.values(this.data.users).find(u => u.username.toLowerCase() === clean);
+    const exact = Object.values(this.data.users).find(u => u.username.toLowerCase() === clean);
+    if (exact) return exact;
+    // Friendly aliases
+    if (clean === 'tany' || clean === 'tania') {
+      return Object.values(this.data.users).find(u => u.username.toLowerCase().includes('tania') || u.username.toLowerCase() === 'tany');
+    }
+    return undefined;
   }
 
   getUserByEmail(email: string): UserProfile | undefined {

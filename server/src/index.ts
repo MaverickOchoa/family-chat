@@ -305,7 +305,15 @@ app.post('/api/auth/login', (req, res) => {
 
   // Validate password if user has one set
   if (user.passwordHash) {
-    if (!password || user.passwordHash !== String(password)) {
+    const entered = String(password || '').trim();
+    const cleanHash = user.passwordHash.trim();
+    const match =
+      entered === cleanHash ||
+      entered.replace(/\.$/, '') === cleanHash ||
+      entered === cleanHash.replace(/\.$/, '') ||
+      (cleanHash + '.') === entered;
+
+    if (!match) {
       return res.status(401).json({ error: 'Contraseña requerida o incorrecta.' });
     }
   } else if (password) {
