@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   generateIdentityKeyPair,
+  deriveDeterministicKeyPair,
   derivePublicKey,
   exportPrivateKey,
   importPrivateKey,
@@ -52,6 +53,13 @@ function validatePassword(pwd: string): string | null {
 export function App() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [userKeyPair, setUserKeyPair] = useState<UserKeyPair | null>(null);
+  const [keyring, setKeyring] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('family_chat_keyring') || '[]');
+    } catch {
+      return [];
+    }
+  });
   const [contacts, setContacts] = useState<any[]>([]);
   const [activeContact, setActiveContact] = useState<any>(null);
   const [messages, setMessages] = useState<any[]>([]);
@@ -94,6 +102,8 @@ export function App() {
     const savedUser = localStorage.getItem('family_chat_user');
     const savedPrivKey = localStorage.getItem('family_chat_privkey');
     const savedPubKey = localStorage.getItem('family_chat_pubkey');
+    const savedKeyring: string[] = JSON.parse(localStorage.getItem('family_chat_keyring') || '[]');
+    setKeyring(savedKeyring);
 
     if (savedUser && savedPrivKey) {
       // Auto-migrate: If old RSA key is detected, clear it to ensure clean X25519 keys
@@ -218,7 +228,8 @@ export function App() {
         pkt.iv,
         keyToUse,
         pkt.senderEphemeralKey || '',
-        userKeyPair.privateKeyBase64
+        userKeyPair.privateKeyBase64,
+        keyring
       );
     } else if (pkt.type === 'image' && pkt.mediaUrl) {
       try {
@@ -228,7 +239,8 @@ export function App() {
           pkt.iv,
           pkt.senderEphemeralKey || '',
           userKeyPair.privateKeyBase64,
-          'image/jpeg'
+          'image/jpeg',
+          keyring
         );
       } catch (e) {
         console.warn('Failed to decrypt image:', e);
@@ -241,7 +253,8 @@ export function App() {
           pkt.iv,
           pkt.senderEphemeralKey || '',
           userKeyPair.privateKeyBase64,
-          pkt.mediaMimeType || 'audio/webm'
+          pkt.mediaMimeType || 'audio/webm',
+          keyring
         );
       } catch (e) {
         console.warn('Failed to decrypt audio:', e);
@@ -276,7 +289,8 @@ export function App() {
           pkt.iv,
           keyToUse,
           pkt.senderEphemeralKey || '',
-          userKeyPair.privateKeyBase64
+          userKeyPair.privateKeyBase64,
+          keyring
         );
       } catch (e) {
         decryptedText = '🔒 [Mensaje editado]';
@@ -356,7 +370,8 @@ export function App() {
               pkt.iv,
               keyToUse,
               pkt.senderEphemeralKey || '',
-              userKeyPair.privateKeyBase64
+              userKeyPair.privateKeyBase64,
+              keyring
             );
           } else if (pkt.type === 'image' && pkt.mediaUrl) {
             try {
@@ -366,7 +381,8 @@ export function App() {
                 pkt.iv,
                 pkt.senderEphemeralKey || '',
                 userKeyPair.privateKeyBase64,
-                'image/jpeg'
+                'image/jpeg',
+                keyring
               );
             } catch (e) {
               console.warn('Image decryption error:', e);
@@ -379,7 +395,8 @@ export function App() {
                 pkt.iv,
                 pkt.senderEphemeralKey || '',
                 userKeyPair.privateKeyBase64,
-                pkt.mediaMimeType || 'audio/webm'
+                pkt.mediaMimeType || 'audio/webm',
+                keyring
               );
             } catch (e) {
               console.warn('Audio decryption error:', e);
@@ -1008,7 +1025,12 @@ export function App() {
           throw new Error(pwdError);
         }
 
-        const keyPair = await generateIdentityKeyPair();
+        // Deterministic Zero-Knowledge Key Derivation
+        const keyPair = await deriveDeterministicKeyPair(
+          usernameInput.trim(),
+          passwordInput.trim(),
+          usernameInput.trim()
+        );
 
         const res = await fetch(`${API_BASE}/api/auth/register`, {
           method: 'POST',
@@ -1035,26 +1057,12 @@ export function App() {
         setCurrentUser(data.user);
         setUserKeyPair(keyPair);
       } else {
-        let keyPair: UserKeyPair;
-        const savedPriv = localStorage.getItem('family_chat_privkey');
-        if (savedPriv && savedPriv.length <= 60) {
-          const derivedPub = derivePublicKey(savedPriv);
-          keyPair = {
-            publicKeyBase64: derivedPub,
-            privateKeyBase64: savedPriv
-          };
-        } else {
-          keyPair = await generateIdentityKeyPair();
-          localStorage.setItem('family_chat_privkey', keyPair.privateKeyBase64);
-        }
-
         const res = await fetch(`${API_BASE}/api/auth/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             username: usernameInput.trim(),
-            password: passwordInput.trim() || undefined,
-            publicKey: keyPair.publicKeyBase64
+            password: passwordInput.trim() || undefined
           })
         });
         const data = await res.json();
@@ -1062,8 +1070,32 @@ export function App() {
           throw new Error(data.error);
         }
 
+        // Derive permanent deterministic sovereign key from credentials + userId
+        const keyPair = await deriveDeterministicKeyPair(
+          data.user.username,
+          passwordInput.trim() || '',
+          data.user.id
+        );
+
+        // Preserve any previous key into keyring so older messages can always decrypt
+        const savedPriv = localStorage.getItem('family_chat_privkey');
+        const existingKeyring: string[] = JSON.parse(localStorage.getItem('family_chat_keyring') || '[]');
+        if (savedPriv && !existingKeyring.includes(savedPriv) && savedPriv !== keyPair.privateKeyBase64) {
+          existingKeyring.push(savedPriv);
+          localStorage.setItem('family_chat_keyring', JSON.stringify(existingKeyring));
+          setKeyring(existingKeyring);
+        }
+
         localStorage.setItem('family_chat_user', JSON.stringify(data.user));
+        localStorage.setItem('family_chat_privkey', keyPair.privateKeyBase64);
         localStorage.setItem('family_chat_pubkey', keyPair.publicKeyBase64);
+
+        // Always sync true deterministic public key to server
+        fetch(`${API_BASE}/api/users/${data.user.id}/public-key`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ publicKey: keyPair.publicKeyBase64 })
+        }).catch(console.error);
 
         setCurrentUser(data.user);
         setUserKeyPair(keyPair);

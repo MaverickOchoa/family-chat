@@ -24,6 +24,48 @@ export async function generateIdentityKeyPair(): Promise<UserKeyPair> {
   };
 }
 
+/**
+ * 1.1 Deterministic Master Key Derivation (Zero-Knowledge)
+ * Derives a permanent sovereign Curve25519 keypair from the user credentials
+ * so that keys are never lost across device changes, browser refreshes, or updates.
+ */
+export async function deriveDeterministicKeyPair(
+  username: string,
+  secret: string = '',
+  userId: string = ''
+): Promise<UserKeyPair> {
+  const enc = new TextEncoder();
+  const effectiveSecret = secret.trim() || `kid_sovereign_seed_${userId || username}`;
+  const salt = enc.encode(`family_chat_sovereign_salt_${userId || username}`);
+
+  const keyMaterial = await window.crypto.subtle.importKey(
+    'raw',
+    enc.encode(effectiveSecret),
+    { name: 'PBKDF2' },
+    false,
+    ['deriveBits']
+  );
+
+  const derivedBits = await window.crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      salt,
+      iterations: 100000,
+      hash: 'SHA-256'
+    },
+    keyMaterial,
+    256
+  );
+
+  const seed = new Uint8Array(derivedBits);
+  const pair = nacl.box.keyPair.fromSecretKey(seed);
+
+  return {
+    publicKeyBase64: naclUtil.encodeBase64(pair.publicKey),
+    privateKeyBase64: naclUtil.encodeBase64(pair.secretKey)
+  };
+}
+
 export function derivePublicKey(privateKeyBase64: string): string {
   try {
     const secretKey = naclUtil.decodeBase64(privateKeyBase64);
@@ -116,7 +158,8 @@ export async function decryptTextMessage(
   ivBase64: string,
   encryptedKeyWithNonceBase64: string,
   senderEphemeralKeyBase64: string,
-  myPrivateKeyBase64: string
+  myPrivateKeyBase64: string,
+  fallbackPrivateKeys: string[] = []
 ): Promise<string> {
   try {
     const rawKeyPayload = naclUtil.decodeBase64(encryptedKeyWithNonceBase64);
@@ -130,10 +173,25 @@ export async function decryptTextMessage(
       return '🔒 [Clave inválida]';
     }
 
-    // Unbox symmetric key
-    const symmetricKey = nacl.box.open(encKey, boxNonce, senderEphemeralKey, mySecretKey);
+    // Unbox symmetric key using primary key or fallback keys from keyring
+    let symmetricKey = nacl.box.open(encKey, boxNonce, senderEphemeralKey, mySecretKey);
+    if (!symmetricKey && fallbackPrivateKeys.length > 0) {
+      for (const altKey of fallbackPrivateKeys) {
+        try {
+          const altSecret = naclUtil.decodeBase64(altKey);
+          if (altSecret.length === 32) {
+            const opened = nacl.box.open(encKey, boxNonce, senderEphemeralKey, altSecret);
+            if (opened) {
+              symmetricKey = opened;
+              break;
+            }
+          }
+        } catch (e) {}
+      }
+    }
+
     if (!symmetricKey) {
-      console.warn('Could not open symmetric key box. Check if your private key matches the public key registered on server.');
+      console.warn('Could not open symmetric key box with any known key in keyring.');
       return '🔒 [Mensaje protegido con otra clave]';
     }
 
@@ -260,7 +318,8 @@ export async function decryptMediaBlob(
   ivBase64: string,
   senderEphemeralKeyBase64: string,
   myPrivateKeyBase64: string,
-  targetMimeType: string
+  targetMimeType: string,
+  fallbackPrivateKeys: string[] = []
 ): Promise<string> {
   const res = await fetch(encryptedBlobUrl);
   if (!res.ok) {
@@ -276,7 +335,22 @@ export async function decryptMediaBlob(
   const senderEphemeralKey = naclUtil.decodeBase64(senderEphemeralKeyBase64);
   const mySecretKey = naclUtil.decodeBase64(myPrivateKeyBase64);
 
-  const symmetricKey = nacl.box.open(encKey, boxNonce, senderEphemeralKey, mySecretKey);
+  let symmetricKey = nacl.box.open(encKey, boxNonce, senderEphemeralKey, mySecretKey);
+  if (!symmetricKey && fallbackPrivateKeys.length > 0) {
+    for (const altKey of fallbackPrivateKeys) {
+      try {
+        const altSecret = naclUtil.decodeBase64(altKey);
+        if (altSecret.length === 32) {
+          const opened = nacl.box.open(encKey, boxNonce, senderEphemeralKey, altSecret);
+          if (opened) {
+            symmetricKey = opened;
+            break;
+          }
+        }
+      } catch (e) {}
+    }
+  }
+
   if (!symmetricKey) {
     throw new Error('Could not unbox media symmetric key');
   }
