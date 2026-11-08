@@ -1,5 +1,16 @@
 {
   "users": {
+    "huttman-ochoa-guardian-id": {
+      "id": "huttman-ochoa-guardian-id",
+      "username": "huttman ochoa",
+      "email": "huttman@ochoa.com",
+      "role": "guardian",
+      "age": 35,
+      "publicKey": "2pgffvTvMNJvWIApROaBcoCxqmFgvR44KOKtyYKerGU=",
+      "avatar": "https://api.dicebear.com/7.x/initials/svg?seed=huttman%20ochoa&backgroundColor=4f46e5,0284c7,7c3aed,059669",
+      "createdAt": "2026-11-07T00:00:00.000Z",
+      "passwordHash": "FamiliaChat2026!"
+    },
     "19325479-a202-4735-99d2-0cf09aec9e82": {
       "id": "19325479-a202-4735-99d2-0cf09aec9e82",
       "username": "Maverick",
@@ -31,6 +42,20 @@
     }
   },
   "contacts": [
+    {
+      "id": "contact-huttman-tany",
+      "userId": "huttman-ochoa-guardian-id",
+      "contactId": "e0fd2534-67be-44a7-9eb9-072ca33f158b",
+      "approvedByGuardianId": "huttman-ochoa-guardian-id",
+      "createdAt": "2026-11-07T00:00:00.000Z"
+    },
+    {
+      "id": "contact-huttman-re",
+      "userId": "4574e70f-aa62-4be9-9e01-113561a9ab52",
+      "contactId": "huttman-ochoa-guardian-id",
+      "approvedByGuardianId": "huttman-ochoa-guardian-id",
+      "createdAt": "2026-11-07T00:00:00.000Z"
+    },
     {
       "id": "9683b0f4-6a03-45fd-a548-6bd39a36b378",
       "userId": "19325479-a202-4735-99d2-0cf09aec9e82",

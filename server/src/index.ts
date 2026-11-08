@@ -44,6 +44,16 @@ app.get('/', (_req, res) => {
   `);
 });
 
+// Version & Health check
+app.get('/api/version', (_req, res) => {
+  res.json({
+    status: 'ok',
+    version: 'mongodb-persistent-v1',
+    mongoConnected: db.isMongoConnected(),
+    usersCount: db.getAllUsers().length
+  });
+});
+
 // 1. Register User (No phone number required)
 app.post('/api/auth/register', (req, res) => {
   try {

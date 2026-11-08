@@ -86,11 +86,34 @@ class Database {
       const remote = await this.mongoCollection.findOne({ _id: 'main_store' as any });
       if (remote && (remote as any).data && Object.keys((remote as any).data.users || {}).length > 0) {
         const remoteData = (remote as any).data;
-        const countUsers = Object.keys(remoteData.users || {}).length;
-        const countMsgs = remoteData.messages?.length || 0;
+        // Merge cloud with local state seamlessly so no newly created user is lost
+        this.data.users = { ...this.data.users, ...(remoteData.users || {}) };
+        this.data.handshakes = { ...(this.data.handshakes || {}), ...(remoteData.handshakes || {}) };
+        
+        // Contacts deduplication
+        const allContacts = [...(this.data.contacts || []), ...(remoteData.contacts || [])];
+        const seenContacts = new Set<string>();
+        this.data.contacts = allContacts.filter(c => {
+          const key = [c.userId, c.contactId].sort().join(':');
+          if (seenContacts.has(key)) return false;
+          seenContacts.add(key);
+          return true;
+        });
+
+        // Messages deduplication
+        const allMsgs = [...(this.data.messages || []), ...(remoteData.messages || [])];
+        const seenMsgs = new Set<string>();
+        this.data.messages = allMsgs.filter(m => {
+          if (seenMsgs.has(m.id)) return false;
+          seenMsgs.add(m.id);
+          return true;
+        });
+
+        const countUsers = Object.keys(this.data.users).length;
+        const countMsgs = this.data.messages.length;
         console.log(`📥 Base de datos permanente sincronizada: ${countUsers} usuarios, ${countMsgs} mensajes.`);
-        this.data = remoteData;
         this.saveLocal();
+        await this.saveRemote();
       } else {
         console.log('🚀 Inicializando MongoDB Atlas con los datos iniciales de la familia...');
         await this.saveRemote();
@@ -98,6 +121,10 @@ class Database {
     } catch (err: any) {
       console.warn('⚠️ MongoDB Atlas aún no disponible o en espera de conexión:', err.message);
     }
+  }
+
+  isMongoConnected(): boolean {
+    return this.mongoCollection !== null;
   }
 
   private save() {
