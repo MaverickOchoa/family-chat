@@ -201,6 +201,27 @@ app.post('/api/guardian/create-child', (req, res) => {
   }
 });
 
+// 1.25 Change Guardian PIN
+app.post('/api/guardian/change-pin', (req, res) => {
+  const { guardianId, currentPin, newPin } = req.body;
+  if (!guardianId || !newPin) {
+    return res.status(400).json({ error: 'guardianId y newPin son requeridos.' });
+  }
+  const user = db.getUser(guardianId);
+  if (!user || user.role !== 'guardian') {
+    return res.status(403).json({ error: 'Solo los guardianes pueden configurar el PIN.' });
+  }
+  const validCurrent = user.guardianPin || '1234';
+  if (currentPin && currentPin !== validCurrent) {
+    return res.status(401).json({ error: 'El PIN actual es incorrecto.' });
+  }
+  if (!/^\d{4,6}$/.test(newPin)) {
+    return res.status(400).json({ error: 'El nuevo PIN debe ser de 4 a 6 dígitos numéricos.' });
+  }
+  const updated = db.updateUser(guardianId, { guardianPin: newPin });
+  return res.json({ success: true, user: updated });
+});
+
 // 1.2 Get Children of Guardian
 app.get('/api/guardian/children/:guardianId', (req, res) => {
   const { guardianId } = req.params;
@@ -279,8 +300,10 @@ app.post('/api/guardian/handshake/respond', (req, res) => {
     }
 
     if (response === 'accept') {
-      if (guardianPin !== '1234') {
-        return res.status(403).json({ error: 'PIN de guardián incorrecto (PIN por defecto: 1234).' });
+      const gUser = db.getUser(guardianId);
+      const expectedPin = gUser?.guardianPin || '1234';
+      if (guardianPin !== expectedPin) {
+        return res.status(403).json({ error: 'PIN de guardián incorrecto.' });
       }
 
       const updated = db.updateHandshake(handshakeId, { status: 'accepted' });

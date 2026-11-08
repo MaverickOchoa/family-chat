@@ -16,8 +16,10 @@ import {
   Briefcase,
   Copy,
   LogOut,
-  Sparkles
+  Sparkles,
+  Lock
 } from 'lucide-react';
+import { API_BASE } from '../config';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -41,6 +43,49 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isStandalone, setIsStandalone] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
+
+  // Guardian PIN Change State
+  const [showPinChange, setShowPinChange] = useState(false);
+  const [currentPinInput, setCurrentPinInput] = useState('');
+  const [newPinInput, setNewPinInput] = useState('');
+  const [confirmPinInput, setConfirmPinInput] = useState('');
+  const [pinChangeMsg, setPinChangeMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const handleChangePin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPinChangeMsg(null);
+    const savedPin = localStorage.getItem('family_guardian_pin') || '1234';
+    if (currentPinInput !== savedPin) {
+      setPinChangeMsg({ type: 'error', text: 'El PIN actual no es correcto.' });
+      return;
+    }
+    if (!/^\d{4,6}$/.test(newPinInput)) {
+      setPinChangeMsg({ type: 'error', text: 'El nuevo PIN debe ser de 4 a 6 números.' });
+      return;
+    }
+    if (newPinInput !== confirmPinInput) {
+      setPinChangeMsg({ type: 'error', text: 'La confirmación del nuevo PIN no coincide.' });
+      return;
+    }
+
+    localStorage.setItem('family_guardian_pin', newPinInput);
+    try {
+      await fetch(`${API_BASE}/api/guardian/change-pin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          guardianId: currentUser.id,
+          currentPin: currentPinInput,
+          newPin: newPinInput
+        })
+      });
+    } catch (e) {}
+
+    setPinChangeMsg({ type: 'success', text: '¡PIN de Guardián actualizado exitosamente!' });
+    setCurrentPinInput('');
+    setNewPinInput('');
+    setConfirmPinInput('');
+  };
 
   useEffect(() => {
     // Check notification permission
@@ -280,6 +325,85 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </button>
             </div>
           </div>
+
+          {/* 5. SECTOR: SEGURIDAD & PIN DE GUARDIÁN */}
+          {currentUser.role === 'guardian' && (
+            <div className="p-4 bg-slate-950/70 rounded-2xl border border-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-amber-400 text-xs font-bold uppercase tracking-wider">
+                  <Lock className="w-4 h-4" /> PIN de Seguridad de Guardián
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPinChange(!showPinChange)}
+                  className="text-[11px] font-bold text-indigo-400 hover:text-indigo-300"
+                >
+                  {showPinChange ? 'Ocultar' : 'Cambiar PIN'}
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Este PIN de 4 dígitos protege la <strong>Bóveda Oculta</strong>, autoriza eliminar fotos/chats y vincula a los niños.
+              </p>
+
+              {showPinChange && (
+                <form onSubmit={handleChangePin} className="space-y-2 pt-2 border-t border-slate-800/80">
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-1">PIN Actual (Por defecto: 1234):</label>
+                    <input
+                      type="password"
+                      maxLength={6}
+                      required
+                      value={currentPinInput}
+                      onChange={(e) => setCurrentPinInput(e.target.value)}
+                      placeholder="••••"
+                      className="w-full py-2 px-3 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono text-center text-sm focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] text-slate-400 mb-1">Nuevo PIN (4-6 núm):</label>
+                      <input
+                        type="password"
+                        maxLength={6}
+                        required
+                        value={newPinInput}
+                        onChange={(e) => setNewPinInput(e.target.value)}
+                        placeholder="••••"
+                        className="w-full py-2 px-3 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono text-center text-sm focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-slate-400 mb-1">Confirmar Nuevo:</label>
+                      <input
+                        type="password"
+                        maxLength={6}
+                        required
+                        value={confirmPinInput}
+                        onChange={(e) => setConfirmPinInput(e.target.value)}
+                        placeholder="••••"
+                        className="w-full py-2 px-3 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono text-center text-sm focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+                  </div>
+
+                  {pinChangeMsg && (
+                    <div className={`p-2 rounded-xl text-xs font-semibold text-center ${
+                      pinChangeMsg.type === 'success' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'
+                    }`}>
+                      {pinChangeMsg.text}
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    className="w-full py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-md transition-colors mt-1"
+                  >
+                    Guardar Nuevo PIN
+                  </button>
+                </form>
+              )}
+            </div>
+          )}
 
           {/* Logout Button */}
           <button

@@ -66,7 +66,7 @@ export const ParentPinModal: React.FC<ParentPinModalProps> = ({
 
             {error && (
               <div className="flex items-center gap-1 text-red-500 text-xs mb-3 font-medium">
-                <ShieldAlert className="w-4 h-4" /> PIN incorrecto (PIN demo: 1234)
+                <ShieldAlert className="w-4 h-4" /> PIN incorrecto. Inténtalo de nuevo.
               </div>
             )}
 

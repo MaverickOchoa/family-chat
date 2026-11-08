@@ -326,7 +326,7 @@ export const KidsView: React.FC<KidsViewProps> = ({
             </div>
 
             {/* Bottom Giant Action Bar (Mobile Responsive) */}
-            <div className="flex-shrink-0 p-2 sm:p-3 bg-amber-200/90 border-t-2 sm:border-t-3 border-amber-300 backdrop-blur z-10">
+            <div className="flex-shrink-0 p-2 sm:p-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] bg-amber-200/90 border-t-2 sm:border-t-3 border-amber-300 backdrop-blur z-10">
               <form onSubmit={handleSendText} className="flex items-center gap-1.5 sm:gap-2.5 max-w-3xl mx-auto w-full">
                 <PhotoSender onSendPhoto={onSendPhoto} theme="kid" />
                 <AudioRecorder onSendAudio={onSendAudio} theme="kid" />
@@ -335,6 +335,11 @@ export const KidsView: React.FC<KidsViewProps> = ({
                   type="text"
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
+                  onFocus={() => {
+                    setTimeout(() => {
+                      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                    }, 300);
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       e.preventDefault();

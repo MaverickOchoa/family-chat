@@ -42,20 +42,20 @@ export const FamilyPhotosVault: React.FC<FamilyPhotosVaultProps> = ({
   const [deletePhotoTarget, setDeletePhotoTarget] = useState<any | null>(null);
   const [showClearAlbumModal, setShowClearAlbumModal] = useState<string | null>(null);
 
-  // Extract all photos from messages
-  const allPhotos = messages.filter((m) => m.type === 'image' && m.decryptedMediaUrl);
+  // Extract general family photos (PUBLIC: Strictly excludes protected photos!)
+  const publicPhotos = messages.filter((m) => m.type === 'image' && m.decryptedMediaUrl && !m.isProtected);
 
-  // Photos grouped by contact
+  // Photos grouped by contact (Strictly public photos only - never leak protected photos in albums)
   const getContactPhotos = (contactId: string) => {
-    return allPhotos.filter(
+    return publicPhotos.filter(
       (m) =>
         (m.fromUserId === currentUser.id && m.toUserId === contactId) ||
         (m.fromUserId === contactId && m.toUserId === currentUser.id)
     );
   };
 
-  // Protected photos
-  const protectedPhotos = allPhotos.filter((m) => m.isProtected);
+  // Protected photos (CONFIDENTIAL: ONLY shown inside the PIN-unlocked Vault)
+  const protectedPhotos = messages.filter((m) => m.type === 'image' && m.decryptedMediaUrl && m.isProtected);
 
   // Download photo to phone camera roll (opt-in explicit download)
   const handleDownload = (photoUrl: string, filename: string = 'familia-foto.jpg') => {
@@ -235,11 +235,6 @@ export const FamilyPhotosVault: React.FC<FamilyPhotosVaultProps> = ({
                       className="w-full h-full object-cover"
                       loading="lazy"
                     />
-                    {photo.isProtected && (
-                      <div className="absolute top-2 right-2 p-1 bg-amber-500/90 text-slate-950 rounded-lg shadow">
-                        <Lock className="w-3 h-3" />
-                      </div>
-                    )}
                     <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-2 text-[10px] text-slate-300">
                       <span>{new Date(photo.timestamp).toLocaleDateString()}</span>
                     </div>
@@ -326,18 +321,18 @@ export const FamilyPhotosVault: React.FC<FamilyPhotosVaultProps> = ({
           </div>
         )}
 
-        {/* 3. VIEW: ALL PHOTOS TIMELINE */}
+        {/* 3. VIEW: ALL PHOTOS TIMELINE (Public only) */}
         {!selectedContactId && activeTab === 'all' && (
           <div className="max-w-5xl mx-auto space-y-4">
-            {allPhotos.length === 0 ? (
+            {publicPhotos.length === 0 ? (
               <div className="p-16 text-center text-slate-500 space-y-2">
                 <ImageIcon className="w-12 h-12 mx-auto text-slate-600 opacity-50" />
-                <p className="text-sm font-semibold text-slate-400">Aún no se han enviado fotos en la plataforma.</p>
+                <p className="text-sm font-semibold text-slate-400">Aún no se han enviado fotos públicas en la plataforma.</p>
                 <p className="text-xs">Toma fotos o adjúntalas en tus chats y aparecerán aquí ordenadas.</p>
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                {allPhotos.map((photo) => (
+                {publicPhotos.map((photo) => (
                   <div
                     key={photo.id}
                     onClick={() => setActiveLightboxPhoto(photo)}
@@ -345,15 +340,10 @@ export const FamilyPhotosVault: React.FC<FamilyPhotosVaultProps> = ({
                   >
                     <img
                       src={photo.decryptedMediaUrl}
-                      alt="Foto"
+                      alt="Foto familiar"
                       className="w-full h-full object-cover"
                       loading="lazy"
                     />
-                    {photo.isProtected && (
-                      <div className="absolute top-2 right-2 p-1 bg-amber-500/90 text-slate-950 rounded-lg shadow">
-                        <Lock className="w-3 h-3" />
-                      </div>
-                    )}
                     <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-2 text-[10px] text-slate-300">
                       <span>{new Date(photo.timestamp).toLocaleDateString()}</span>
                     </div>

@@ -641,7 +641,7 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
             </div>
 
             {/* Input Bar (Footer) */}
-            <div className="p-3 border-t border-slate-800 bg-slate-900 flex-shrink-0">
+            <div className="p-3 border-t border-slate-800 bg-slate-900 flex-shrink-0 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
               <form onSubmit={handleSend} className="flex items-center gap-2 max-w-4xl mx-auto">
                 <PhotoSender onSendPhoto={onSendPhoto} theme="adult" />
                 <AudioRecorder onSendAudio={onSendAudio} theme="adult" />
@@ -650,6 +650,11 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
                   type="text"
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
+                  onFocus={() => {
+                    setTimeout(() => {
+                      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                    }, 300);
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       e.preventDefault();

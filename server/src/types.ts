@@ -11,6 +11,7 @@ export interface UserProfile {
   publicKey: string; // Base64 or JWK
   signaturePublicKey?: string; // For verifying signatures
   avatar?: string;
+  guardianPin?: string;
   createdAt: string;
 }
 
