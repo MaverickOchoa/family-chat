@@ -50,6 +50,7 @@ app.get('/api/version', (_req, res) => {
     status: 'ok',
     version: 'mongodb-persistent-v1',
     mongoConnected: db.isMongoConnected(),
+    mongoError: db.mongoError,
     usersCount: db.getAllUsers().length
   });
 });

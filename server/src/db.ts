@@ -31,6 +31,7 @@ class Database {
 
   private mongoClient: MongoClient | null = null;
   private mongoCollection: Collection | null = null;
+  public mongoError: string | null = null;
 
   constructor() {
     this.init();
@@ -119,7 +120,10 @@ class Database {
         await this.saveRemote();
       }
     } catch (err: any) {
+      this.mongoError = err.message || String(err);
       console.warn('⚠️ MongoDB Atlas aún no disponible o en espera de conexión:', err.message);
+      // Retry connection in 15 seconds
+      setTimeout(() => this.initMongo(), 15000);
     }
   }
 
