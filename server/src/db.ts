@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { MongoClient, type Collection } from 'mongodb';
 import type { UserProfile, ApprovedContact, PairingInvitation, EncryptedMessagePacket, GuardianHandshakeRequest } from './types.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -8,6 +9,8 @@ const __dirname = path.dirname(__filename);
 const DATA_DIR = path.resolve(__dirname, '../data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 const STORAGE_DIR = path.join(DATA_DIR, 'encrypted_blobs');
+
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://admin:FamiliaChat2026!@chat.pdvv3et.mongodb.net/family-chat?retryWrites=true&w=majority';
 
 interface DatabaseSchema {
   users: Record<string, UserProfile>;
@@ -26,8 +29,12 @@ class Database {
     handshakes: {}
   };
 
+  private mongoClient: MongoClient | null = null;
+  private mongoCollection: Collection | null = null;
+
   constructor() {
     this.init();
+    this.initMongo();
   }
 
   private init() {
@@ -66,13 +73,58 @@ class Database {
     }
   }
 
+  private async initMongo() {
+    if (!MONGODB_URI) return;
+    try {
+      this.mongoClient = new MongoClient(MONGODB_URI);
+      await this.mongoClient.connect();
+      const db = this.mongoClient.db('family-chat');
+      this.mongoCollection = db.collection('sovereign_store');
+      console.log('✅ Conectado exitosamente a MongoDB Atlas (Base de Datos Permanente)');
+
+      // Fetch cloud state
+      const remote = await this.mongoCollection.findOne({ _id: 'main_store' as any });
+      if (remote && (remote as any).data && Object.keys((remote as any).data.users || {}).length > 0) {
+        const remoteData = (remote as any).data;
+        const countUsers = Object.keys(remoteData.users || {}).length;
+        const countMsgs = remoteData.messages?.length || 0;
+        console.log(`📥 Base de datos permanente sincronizada: ${countUsers} usuarios, ${countMsgs} mensajes.`);
+        this.data = remoteData;
+        this.saveLocal();
+      } else {
+        console.log('🚀 Inicializando MongoDB Atlas con los datos iniciales de la familia...');
+        await this.saveRemote();
+      }
+    } catch (err: any) {
+      console.warn('⚠️ MongoDB Atlas aún no disponible o en espera de conexión:', err.message);
+    }
+  }
+
   private save() {
+    this.saveLocal();
+    this.saveRemote();
+  }
+
+  private saveLocal() {
     try {
       const tempFile = `${DB_FILE}.tmp`;
       fs.writeFileSync(tempFile, JSON.stringify(this.data, null, 2), 'utf-8');
       fs.renameSync(tempFile, DB_FILE);
     } catch (err) {
-      console.error('Failed to persist database:', err);
+      console.error('Failed to persist database to local disk:', err);
+    }
+  }
+
+  private async saveRemote() {
+    if (!this.mongoCollection) return;
+    try {
+      await this.mongoCollection.updateOne(
+        { _id: 'main_store' as any },
+        { $set: { data: this.data, updatedAt: new Date() } },
+        { upsert: true }
+      );
+    } catch (err: any) {
+      console.error('Failed to sync to MongoDB Atlas:', err.message);
     }
   }
 
