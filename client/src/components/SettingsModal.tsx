@@ -23,6 +23,20 @@ import {
 } from 'lucide-react';
 import { API_BASE } from '../config';
 
+interface CustomEnvironment {
+  id: string;
+  name: string;
+  desc: string;
+  isFixed?: boolean;
+}
+
+const DEFAULT_ENVIRONMENTS: CustomEnvironment[] = [
+  { id: 'all', name: '🌐 Todos los Entornos', desc: 'Ver todos tus contactos y chats reunidos', isFixed: true },
+  { id: 'family', name: '🏠 Familia', desc: 'Núcleo familiar, fotos protegidas y supervisión (Fijo)', isFixed: true },
+  { id: 'church', name: '⛪ Comunidad / Iglesia', desc: 'Grupos, actividades y amistades compartidas' },
+  { id: 'work', name: '💼 Trabajo / Proyectos', desc: 'Documentos laborales y comunicación profesional' }
+];
+
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -45,6 +59,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isStandalone, setIsStandalone] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
+
+  // Environments State (Hooks declared unconditionally at the top)
+  const [environments, setEnvironments] = useState<CustomEnvironment[]>(() => {
+    try {
+      const saved = localStorage.getItem('family_custom_environments');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const hasAll = parsed.some((e: any) => e.id === 'all');
+        const hasFamily = parsed.some((e: any) => e.id === 'family');
+        let merged = [...parsed];
+        if (!hasAll) merged.unshift(DEFAULT_ENVIRONMENTS[0]);
+        if (!hasFamily) merged.splice(1, 0, DEFAULT_ENVIRONMENTS[1]);
+        return merged;
+      }
+    } catch (e) {}
+    return DEFAULT_ENVIRONMENTS;
+  });
+
+  const [newEnvName, setNewEnvName] = useState('');
+  const [showAddEnv, setShowAddEnv] = useState(false);
 
   // Guardian PIN Change State
   const [showPinChange, setShowPinChange] = useState(false);
@@ -163,38 +197,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
-  interface CustomEnvironment {
-    id: string;
-    name: string;
-    desc: string;
-    isFixed?: boolean;
-  }
 
-  const DEFAULT_ENVIRONMENTS: CustomEnvironment[] = [
-    { id: 'all', name: '🌐 Todos los Entornos', desc: 'Ver todos tus contactos y chats reunidos', isFixed: true },
-    { id: 'family', name: '🏠 Familia', desc: 'Núcleo familiar, fotos protegidas y supervisión (Fijo)', isFixed: true },
-    { id: 'church', name: '⛪ Comunidad / Iglesia', desc: 'Grupos, actividades y amistades compartidas' },
-    { id: 'work', name: '💼 Trabajo / Proyectos', desc: 'Documentos laborales y comunicación profesional' }
-  ];
-
-  const [environments, setEnvironments] = useState<CustomEnvironment[]>(() => {
-    try {
-      const saved = localStorage.getItem('family_custom_environments');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        const hasAll = parsed.some((e: any) => e.id === 'all');
-        const hasFamily = parsed.some((e: any) => e.id === 'family');
-        let merged = [...parsed];
-        if (!hasAll) merged.unshift(DEFAULT_ENVIRONMENTS[0]);
-        if (!hasFamily) merged.splice(1, 0, DEFAULT_ENVIRONMENTS[1]);
-        return merged;
-      }
-    } catch (e) {}
-    return DEFAULT_ENVIRONMENTS;
-  });
-
-  const [newEnvName, setNewEnvName] = useState('');
-  const [showAddEnv, setShowAddEnv] = useState(false);
 
   const handleAddEnvironment = (e: React.FormEvent) => {
     e.preventDefault();
