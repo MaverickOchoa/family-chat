@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   generateIdentityKeyPair,
+  derivePublicKey,
   exportPrivateKey,
   importPrivateKey,
   encryptTextMessage,
@@ -94,9 +95,9 @@ export function App() {
     const savedPrivKey = localStorage.getItem('family_chat_privkey');
     const savedPubKey = localStorage.getItem('family_chat_pubkey');
 
-    if (savedUser && savedPrivKey && savedPubKey) {
+    if (savedUser && savedPrivKey) {
       // Auto-migrate: If old RSA key is detected, clear it to ensure clean X25519 keys
-      if (savedPrivKey.length > 60 || savedPubKey.length > 60) {
+      if (savedPrivKey.length > 60) {
         localStorage.clear();
         setCurrentUser(null);
         setUserKeyPair(null);
@@ -104,11 +105,22 @@ export function App() {
       }
       try {
         const parsed = JSON.parse(savedUser);
-        setCurrentUser(parsed);
-        setUserKeyPair({
-          publicKeyBase64: savedPubKey,
-          privateKeyBase64: savedPrivKey
-        });
+        const derivedPub = derivePublicKey(savedPrivKey);
+        if (derivedPub) {
+          localStorage.setItem('family_chat_pubkey', derivedPub);
+          setCurrentUser(parsed);
+          setUserKeyPair({
+            publicKeyBase64: derivedPub,
+            privateKeyBase64: savedPrivKey
+          });
+
+          // Always push true derived public key to server
+          fetch(`${API_BASE}/api/users/${parsed.id}/public-key`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ publicKey: derivedPub })
+          }).catch(console.error);
+        }
       } catch (e) {
         console.error('Failed to restore session:', e);
       }
@@ -138,7 +150,11 @@ export function App() {
     wsRef.current = ws;
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'auth', userId: currentUser.id }));
+      ws.send(JSON.stringify({
+        type: 'auth',
+        userId: currentUser.id,
+        publicKey: userKeyPair.publicKeyBase64
+      }));
     };
 
     ws.onmessage = async (event) => {
@@ -1022,9 +1038,9 @@ export function App() {
         let keyPair: UserKeyPair;
         const savedPriv = localStorage.getItem('family_chat_privkey');
         if (savedPriv && savedPriv.length <= 60) {
-          const savedPub = localStorage.getItem('family_chat_pubkey');
+          const derivedPub = derivePublicKey(savedPriv);
           keyPair = {
-            publicKeyBase64: savedPub || '',
+            publicKeyBase64: derivedPub,
             privateKeyBase64: savedPriv
           };
         } else {
@@ -1047,13 +1063,10 @@ export function App() {
         }
 
         localStorage.setItem('family_chat_user', JSON.stringify(data.user));
-        localStorage.setItem('family_chat_pubkey', data.user.publicKey);
+        localStorage.setItem('family_chat_pubkey', keyPair.publicKeyBase64);
 
         setCurrentUser(data.user);
-        setUserKeyPair({
-          publicKeyBase64: data.user.publicKey,
-          privateKeyBase64: keyPair.privateKeyBase64
-        });
+        setUserKeyPair(keyPair);
       }
     } catch (err: any) {
       setAuthError(err.message || 'Error de autenticación.');

@@ -76,6 +76,7 @@ export interface WSClientMessage {
   type: 'auth' | 'send_message' | 'ack' | 'typing' | 'delete_message' | 'edit_message' | 'clear_chat';
   token?: string;
   userId?: string;
+  publicKey?: string;
   message?: EncryptedMessagePacket;
   messageId?: string;
   status?: 'delivered' | 'read';

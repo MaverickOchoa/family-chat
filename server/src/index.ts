@@ -141,6 +141,20 @@ app.post('/api/users/:id/avatar', (req, res) => {
   return res.json({ success: true, user: updated });
 });
 
+// 1.11 Update User Public Key
+app.post('/api/users/:id/public-key', (req, res) => {
+  const { id } = req.params;
+  const { publicKey } = req.body;
+  if (!publicKey || typeof publicKey !== 'string' || publicKey.length < 30 || publicKey.length > 60) {
+    return res.status(400).json({ error: 'Valid base64 publicKey is required.' });
+  }
+  const updated = db.updateUser(id, { publicKey });
+  if (!updated) {
+    return res.status(404).json({ error: 'User not found.' });
+  }
+  return res.json({ success: true, user: updated });
+});
+
 // 1.2 Create Child account directly by Guardian
 app.post('/api/guardian/create-child', (req, res) => {
   try {
@@ -697,6 +711,13 @@ wss.on('connection', (ws) => {
               userSockets.set(authenticatedUserId, new Set());
             }
             userSockets.get(authenticatedUserId)!.add(ws);
+
+            if (msg.publicKey && msg.publicKey.length < 60) {
+              const u = db.getUser(authenticatedUserId);
+              if (u && u.publicKey !== msg.publicKey) {
+                db.updateUser(authenticatedUserId, { publicKey: msg.publicKey });
+              }
+            }
 
             // Notify presence to contacts
             broadcastPresence(authenticatedUserId, true);

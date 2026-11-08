@@ -24,6 +24,19 @@ export async function generateIdentityKeyPair(): Promise<UserKeyPair> {
   };
 }
 
+export function derivePublicKey(privateKeyBase64: string): string {
+  try {
+    const secretKey = naclUtil.decodeBase64(privateKeyBase64);
+    if (secretKey.length === 32) {
+      const pair = nacl.box.keyPair.fromSecretKey(secretKey);
+      return naclUtil.encodeBase64(pair.publicKey);
+    }
+  } catch (e) {
+    console.error('Error deriving public key:', e);
+  }
+  return '';
+}
+
 export async function exportPrivateKey(keyBase64: string): Promise<string> {
   return keyBase64;
 }
