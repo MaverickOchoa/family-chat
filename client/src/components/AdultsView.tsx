@@ -36,6 +36,7 @@ interface AdultsViewProps {
   onUnlockProtectedPhoto?: (msgId: string) => void;
   onRefreshContacts?: () => void;
   onUserUpdated?: (user: any) => void;
+  onlineUsers?: Set<string>;
 }
 
 export const AdultsView: React.FC<AdultsViewProps> = ({
@@ -62,7 +63,8 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
   unlockedProtectedPhotos,
   onUnlockProtectedPhoto,
   onRefreshContacts,
-  onUserUpdated
+  onUserUpdated,
+  onlineUsers = new Set()
 }) => {
   const [activeTab, setActiveTab] = useState<'chats' | 'mirror'>('chats');
   const [selectedMirrorChild, setSelectedMirrorChild] = useState<any>(null);
@@ -156,6 +158,14 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onOpenPhotosVault}
+              className="p-2 rounded-xl bg-purple-950/60 hover:bg-purple-900/60 border border-purple-500/30 text-purple-200 transition-colors shadow-sm"
+              title="Bóveda de Fotos Familiar"
+            >
+              <ImageIcon className="w-4 h-4 text-purple-400" />
+            </button>
             {onOpenSettings && (
               <button
                 type="button"
@@ -268,30 +278,37 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
           </div>
         )}
 
-        {/* Action Button: Invite family member */}
-        <div className="px-3 pt-2 flex-shrink-0 space-y-1.5">
-          <button
-            onClick={onOpenPhotosVault}
-            className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-purple-950/60 to-indigo-950/60 hover:from-purple-900/70 hover:to-indigo-900/70 border border-purple-500/30 text-purple-200 font-semibold text-xs flex items-center justify-center gap-2 transition-all shadow-sm"
-          >
-            <ImageIcon className="w-4 h-4 text-purple-400" /> 📸 Bóveda de Fotos Familiar
-          </button>
+        {/* Action Buttons: Sleek compact row */}
+        <div className="px-3 pt-2.5 flex-shrink-0 flex items-center gap-2">
+          {currentUser.role === 'guardian' ? (
+            <>
+              <button
+                onClick={() => setShowAddChildModal(true)}
+                className="flex-1 py-2 px-2.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 font-semibold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm active:scale-95"
+                title="Agregar hijo/a a la familia"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                <span>+ Hijo</span>
+              </button>
 
-          {currentUser.role === 'guardian' && (
+              <button
+                onClick={onOpenInviteModal}
+                className="flex-1 py-2 px-2.5 rounded-xl border border-indigo-500/40 bg-indigo-950/40 hover:bg-indigo-900/50 text-indigo-300 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-sm active:scale-95"
+                title="Invitar familiar con código seguro"
+              >
+                <UserPlus className="w-3.5 h-3.5 text-indigo-400" />
+                <span>+ Invitar</span>
+              </button>
+            </>
+          ) : (
             <button
-              onClick={() => setShowAddChildModal(true)}
-              className="w-full py-2 px-3 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 font-semibold text-xs flex items-center justify-center gap-2 transition-all shadow-sm"
+              onClick={onOpenInviteModal}
+              className="w-full py-2 px-3 rounded-xl border border-dashed border-indigo-500/40 bg-indigo-950/30 hover:bg-indigo-900/40 text-indigo-300 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors active:scale-95"
             >
-              <Sparkles className="w-4 h-4 text-amber-400" /> + Agregar Hijo/a a la Familia
+              <UserPlus className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Invitar a Familiar</span>
             </button>
           )}
-
-          <button
-            onClick={onOpenInviteModal}
-            className="w-full py-2 px-3 rounded-xl border border-dashed border-indigo-500/40 bg-indigo-950/30 hover:bg-indigo-900/40 text-indigo-300 font-semibold text-xs flex items-center justify-center gap-2 transition-colors"
-          >
-            <UserPlus className="w-4 h-4 text-indigo-400" /> Invitar a Familiar
-          </button>
         </div>
 
         {/* Contact List */}
@@ -316,11 +333,19 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
                         : 'border-transparent hover:bg-slate-800/60 text-slate-300'
                     }`}
                   >
-                    <img
-                      src={contact.avatar}
-                      alt=""
-                      className="w-11 h-11 rounded-full border border-slate-700 object-cover bg-slate-800"
-                    />
+                    <div className="relative flex-shrink-0">
+                      <img
+                        src={contact.avatar}
+                        alt=""
+                        className="w-11 h-11 rounded-full border border-slate-700 object-cover bg-slate-800"
+                      />
+                      {onlineUsers.has(contact.id) && (
+                        <span
+                          className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-slate-900 rounded-full shadow-sm ring-1 ring-emerald-400/50"
+                          title="En línea en la app"
+                        />
+                      )}
+                    </div>
                     <div className="text-left flex-1 min-w-0">
                       <div className="font-semibold text-sm truncate flex items-center justify-between">
                         <span className="text-white">{contact.username}</span>
@@ -340,8 +365,16 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
                           </span>
                         </div>
                       </div>
-                      <div className="text-xs text-slate-400 truncate flex items-center gap-1 mt-0.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" /> Canal seguro E2EE
+                      <div className="text-xs truncate flex items-center gap-1 mt-0.5">
+                        {onlineUsers.has(contact.id) ? (
+                          <span className="text-emerald-400 text-[11px] font-semibold flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" /> En línea
+                          </span>
+                        ) : (
+                          <span className="text-slate-500 text-[11px] flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-slate-600 inline-block" /> Canal seguro
+                          </span>
+                        )}
                       </div>
                     </div>
                   </button>
@@ -508,22 +541,36 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
                 >
                   <ArrowLeft className="w-5 h-5" />
                 </button>
-                <img
-                  src={activeContact.avatar}
-                  alt=""
-                  onClick={() => setFullscreenMedia({
-                    url: activeContact.avatar,
-                    title: activeContact.username,
-                    subtitle: `Foto de perfil (${activeContact.role})`
-                  })}
-                  className="w-10 h-10 rounded-full border border-slate-700 object-cover bg-slate-800 shadow cursor-pointer hover:ring-2 hover:ring-indigo-500/80 transition-all"
-                  title="Toca para ver foto de perfil en grande"
-                />
+                <div className="relative">
+                  <img
+                    src={activeContact.avatar}
+                    alt=""
+                    onClick={() => setFullscreenMedia({
+                      url: activeContact.avatar,
+                      title: activeContact.username,
+                      subtitle: `Foto de perfil (${activeContact.role})`
+                    })}
+                    className="w-10 h-10 rounded-full border border-slate-700 object-cover bg-slate-800 shadow cursor-pointer hover:ring-2 hover:ring-indigo-500/80 transition-all"
+                    title="Toca para ver foto de perfil en grande"
+                  />
+                  {onlineUsers.has(activeContact.id) && (
+                    <span
+                      className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-slate-900 rounded-full"
+                      title="En línea en la app"
+                    />
+                  )}
+                </div>
                 <div>
                   <h3 className="font-bold text-sm text-white">{activeContact.username}</h3>
-                  <span className="text-[11px] text-emerald-400 font-medium flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block animate-pulse" /> Canal Cifrado Activo
-                  </span>
+                  {onlineUsers.has(activeContact.id) ? (
+                    <span className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block animate-pulse" /> En línea
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-slate-400 font-medium flex items-center gap-1">
+                      Canal Cifrado
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -638,7 +685,17 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
                           <div className="flex items-center justify-end gap-2 mt-1 text-[10px] opacity-75">
                             {msg.isEdited && <span className="text-slate-400 italic text-[9px]">(editado)</span>}
                             <span>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                            {isMine && <span className="text-indigo-200 font-mono">✓✓</span>}
+                            {isMine && (
+                              <span className="font-mono text-[11px] font-bold">
+                                {msg.status === 'read' ? (
+                                  <span className="text-sky-400" title="Leído">✓✓</span>
+                                ) : msg.status === 'delivered' ? (
+                                  <span className="text-slate-400" title="Entregado">✓✓</span>
+                                ) : (
+                                  <span className="text-slate-500" title="Enviado">✓</span>
+                                )}
+                              </span>
+                            )}
                             {isMine && msg.type === 'text' && (
                               <button
                                 type="button"

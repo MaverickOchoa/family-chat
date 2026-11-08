@@ -70,6 +70,7 @@ export function App() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [currentEnvironment, setCurrentEnvironment] = useState<string>('all');
   const [handshakes, setHandshakes] = useState<any[]>([]);
+  const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
 
   // Modals
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -178,6 +179,24 @@ export function App() {
           setMessages((prev) => prev.filter((m) => m.id !== data.messageId));
         } else if (data.type === 'edit_message') {
           await handleIncomingEdit(data.message);
+        } else if (data.type === 'status_update') {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === data.messageId ? { ...m, status: data.status } : m))
+          );
+        } else if (data.type === 'initial_presence') {
+          if (Array.isArray(data.onlineUserIds)) {
+            setOnlineUsers(new Set(data.onlineUserIds));
+          }
+        } else if (data.type === 'presence') {
+          setOnlineUsers((prev) => {
+            const next = new Set(prev);
+            if (data.isOnline) {
+              next.add(data.userId);
+            } else {
+              next.delete(data.userId);
+            }
+            return next;
+          });
         } else if (data.type === 'clear_chat') {
           setMessages((prev) =>
             prev.filter(
@@ -205,11 +224,72 @@ export function App() {
       }
     };
 
+    // Presence update based on tab/app visibility (like WhatsApp)
+    const handleVisibilityChange = () => {
+      if (ws.readyState === WebSocket.OPEN && currentUser) {
+        const isVisible = document.visibilityState === 'visible';
+        ws.send(JSON.stringify({
+          type: 'presence_state',
+          isOnline: isVisible
+        }));
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       clearInterval(pollInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       ws.close();
     };
   }, [currentUser, userKeyPair]);
+
+  const playNotificationSoundAndVibrate = () => {
+    try {
+      if ('vibrate' in navigator) {
+        navigator.vibrate([70, 40, 70]);
+      }
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx) {
+        const ctx = new AudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+        osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.1); // A5
+        gain.gain.setValueAtTime(0.12, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.3);
+      }
+    } catch (e) {}
+  };
+
+  // Automatically mark incoming messages from active contact as read
+  useEffect(() => {
+    if (!activeContact || !currentUser || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    if (document.visibilityState !== 'visible') return;
+
+    const unreadIds = messages
+      .filter((m) => m && m.fromUserId === activeContact.id && m.toUserId === currentUser.id && m.status !== 'read')
+      .map((m) => m.id);
+
+    if (unreadIds.length > 0) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'ack',
+          messageIds: unreadIds,
+          status: 'read'
+        })
+      );
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.fromUserId === activeContact.id && m.toUserId === currentUser.id ? { ...m, status: 'read' } : m
+        )
+      );
+    }
+  }, [activeContact?.id, messages.length]);
 
   // Decrypt incoming message
   const handleIncomingPacket = async (pkt: any) => {
@@ -273,6 +353,55 @@ export function App() {
       if (prev.some((m) => m.id === pkt.id)) return prev;
       return [...prev, processedMsg];
     });
+
+    // Notify or mark as read
+    if (!isSender && !isMirror) {
+      const isViewingChat =
+        activeContact &&
+        activeContact.id === pkt.fromUserId &&
+        document.visibilityState === 'visible';
+
+      if (isViewingChat) {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(
+            JSON.stringify({
+              type: 'ack',
+              messageId: pkt.id,
+              status: 'read'
+            })
+          );
+        }
+      } else {
+        playNotificationSoundAndVibrate();
+
+        if ('Notification' in window && Notification.permission === 'granted') {
+          const senderContact = contacts.find((c) => c.id === pkt.fromUserId);
+          const senderName = senderContact?.username || 'Familiar';
+          const preview =
+            pkt.type === 'text'
+              ? decryptedText || 'Nuevo mensaje'
+              : pkt.type === 'image'
+              ? '📸 Foto recibida'
+              : '🎤 Nota de voz recibida';
+
+          try {
+            const notif = new Notification(`💬 ${senderName}`, {
+              body: preview,
+              icon: senderContact?.avatar || '/favicon.svg',
+              tag: `family_chat_${pkt.fromUserId}`
+            });
+            notif.onclick = () => {
+              window.focus();
+              if (senderContact) {
+                setActiveContact(senderContact);
+              }
+            };
+          } catch (e) {
+            console.error('Notification error:', e);
+          }
+        }
+      }
+    }
   };
 
   const handleIncomingEdit = async (pkt: any) => {
@@ -1314,6 +1443,7 @@ export function App() {
           unlockedProtectedPhotos={unlockedProtectedPhotos}
           onUnlockProtectedPhoto={handleUnlockProtectedPhoto}
           onUserUpdated={handleUserUpdated}
+          onlineUsers={onlineUsers}
         />
         <ParentPinModal
           isOpen={showPinModal}
@@ -1370,6 +1500,7 @@ export function App() {
           unlockedProtectedPhotos={unlockedProtectedPhotos}
           onUnlockProtectedPhoto={handleUnlockProtectedPhoto}
           onUserUpdated={handleUserUpdated}
+          onlineUsers={onlineUsers}
         />
 
         <ParentPinModal
@@ -1425,6 +1556,7 @@ export function App() {
         onUnlockProtectedPhoto={handleUnlockProtectedPhoto}
         onUserUpdated={handleUserUpdated}
         onRefreshContacts={fetchContacts}
+        onlineUsers={onlineUsers}
       />
 
       <InviteModal

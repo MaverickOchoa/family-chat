@@ -744,6 +744,20 @@ wss.on('connection', (ws) => {
 
             // Notify presence to contacts
             broadcastPresence(authenticatedUserId, true);
+
+            // Send initial online user IDs to the connected user
+            const currentOnlineUserIds = Array.from(userSockets.keys());
+            ws.send(JSON.stringify({
+              type: 'initial_presence',
+              onlineUserIds: currentOnlineUserIds
+            }));
+          }
+          break;
+        }
+
+        case 'presence_state': {
+          if (authenticatedUserId) {
+            broadcastPresence(authenticatedUserId, !!msg.isOnline);
           }
           break;
         }
@@ -799,13 +813,19 @@ wss.on('connection', (ws) => {
         }
 
         case 'ack': {
-          if (msg.messageId && msg.status) {
-            db.updateMessageStatus(msg.messageId, msg.status);
-            broadcastToAll({
-              type: 'status_update',
-              messageId: msg.messageId,
-              status: msg.status
-            });
+          const ids: string[] = [];
+          if (msg.messageId) ids.push(msg.messageId);
+          if (Array.isArray((msg as any).messageIds)) ids.push(...(msg as any).messageIds);
+
+          if (ids.length > 0 && msg.status) {
+            for (const id of ids) {
+              db.updateMessageStatus(id, msg.status);
+              broadcastToAll({
+                type: 'status_update',
+                messageId: id,
+                status: msg.status
+              });
+            }
           }
           break;
         }

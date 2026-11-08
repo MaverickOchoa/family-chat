@@ -27,6 +27,7 @@ interface KidsViewProps {
   unlockedProtectedPhotos?: string[];
   onUnlockProtectedPhoto?: (msgId: string) => void;
   onUserUpdated?: (user: any) => void;
+  onlineUsers?: Set<string>;
 }
 
 export const KidsView: React.FC<KidsViewProps> = ({
@@ -47,7 +48,8 @@ export const KidsView: React.FC<KidsViewProps> = ({
   onOpenSettings,
   unlockedProtectedPhotos,
   onUnlockProtectedPhoto,
-  onUserUpdated
+  onUserUpdated,
+  onlineUsers = new Set()
 }) => {
   const [inputText, setInputText] = useState('');
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
@@ -217,11 +219,19 @@ export const KidsView: React.FC<KidsViewProps> = ({
                         ⛪ Iglesia
                       </span>
                     )}
-                    <img
-                      src={contact.avatar}
-                      alt={contact.username}
-                      className="w-24 h-24 rounded-full border-4 border-amber-400 shadow-md mb-3 bg-amber-50"
-                    />
+                    <div className="relative mb-3">
+                      <img
+                        src={contact.avatar}
+                        alt={contact.username}
+                        className="w-24 h-24 rounded-full border-4 border-amber-400 shadow-md bg-amber-50"
+                      />
+                      {onlineUsers.has(contact.id) && (
+                        <span
+                          className="absolute bottom-1 right-1 w-5 h-5 bg-emerald-500 border-2 border-white rounded-full shadow"
+                          title="En línea en la app"
+                        />
+                      )}
+                    </div>
                     <span className="text-xl font-black text-amber-950 capitalize">{contact.username}</span>
                     <span className="text-xs font-bold text-amber-600 mt-1">
                       {contact.environment === 'church' ? 'Amiga de la iglesia' : 'Toca para platicar'}
@@ -321,7 +331,17 @@ export const KidsView: React.FC<KidsViewProps> = ({
                         <span>
                           {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
-                        {isMine && <span>✓✓</span>}
+                        {isMine && (
+                          <span className="font-mono text-xs font-bold">
+                            {msg.status === 'read' ? (
+                              <span className="text-sky-600" title="Leído">✓✓</span>
+                            ) : msg.status === 'delivered' ? (
+                              <span className="text-amber-800" title="Entregado">✓✓</span>
+                            ) : (
+                              <span className="text-amber-800/80" title="Enviado">✓</span>
+                            )}
+                          </span>
+                        )}
                         {isMine && msg.type === 'text' && (
                           <button
                             type="button"

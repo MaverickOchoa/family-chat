@@ -74,7 +74,7 @@ export interface EncryptedMessagePacket {
 }
 
 export interface WSClientMessage {
-  type: 'auth' | 'send_message' | 'ack' | 'typing' | 'delete_message' | 'edit_message' | 'clear_chat';
+  type: 'auth' | 'send_message' | 'ack' | 'typing' | 'delete_message' | 'edit_message' | 'clear_chat' | 'presence_state';
   token?: string;
   userId?: string;
   publicKey?: string;
@@ -85,4 +85,5 @@ export interface WSClientMessage {
   mode?: 'for_me' | 'for_everyone';
   contactId?: string;
   guardianAuthorized?: boolean;
+  isOnline?: boolean;
 }

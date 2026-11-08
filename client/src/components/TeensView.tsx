@@ -26,6 +26,7 @@ interface TeensViewProps {
   unlockedProtectedPhotos?: string[];
   onUnlockProtectedPhoto?: (msgId: string) => void;
   onUserUpdated?: (user: any) => void;
+  onlineUsers?: Set<string>;
 }
 
 export const TeensView: React.FC<TeensViewProps> = ({
@@ -46,7 +47,8 @@ export const TeensView: React.FC<TeensViewProps> = ({
   onOpenSettings,
   unlockedProtectedPhotos,
   onUnlockProtectedPhoto,
-  onUserUpdated
+  onUserUpdated,
+  onlineUsers = new Set()
 }) => {
   const [inputText, setInputText] = useState('');
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
