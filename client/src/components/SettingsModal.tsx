@@ -17,7 +17,9 @@ import {
   Copy,
   LogOut,
   Sparkles,
-  Lock
+  Lock,
+  Trash2,
+  Plus
 } from 'lucide-react';
 import { API_BASE } from '../config';
 
@@ -161,12 +163,66 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
-  const environments = [
-    { id: 'all', name: '🌐 Todos los Entornos', desc: 'Ver todos tus contactos y chats reunidos' },
-    { id: 'family', name: '🏠 Familia Ochoa', desc: 'Núcleo familiar, fotos protegidas y supervisión infantil' },
+  interface CustomEnvironment {
+    id: string;
+    name: string;
+    desc: string;
+    isFixed?: boolean;
+  }
+
+  const DEFAULT_ENVIRONMENTS: CustomEnvironment[] = [
+    { id: 'all', name: '🌐 Todos los Entornos', desc: 'Ver todos tus contactos y chats reunidos', isFixed: true },
+    { id: 'family', name: '🏠 Familia', desc: 'Núcleo familiar, fotos protegidas y supervisión (Fijo)', isFixed: true },
     { id: 'church', name: '⛪ Comunidad / Iglesia', desc: 'Grupos, actividades y amistades compartidas' },
     { id: 'work', name: '💼 Trabajo / Proyectos', desc: 'Documentos laborales y comunicación profesional' }
   ];
+
+  const [environments, setEnvironments] = useState<CustomEnvironment[]>(() => {
+    try {
+      const saved = localStorage.getItem('family_custom_environments');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const hasAll = parsed.some((e: any) => e.id === 'all');
+        const hasFamily = parsed.some((e: any) => e.id === 'family');
+        let merged = [...parsed];
+        if (!hasAll) merged.unshift(DEFAULT_ENVIRONMENTS[0]);
+        if (!hasFamily) merged.splice(1, 0, DEFAULT_ENVIRONMENTS[1]);
+        return merged;
+      }
+    } catch (e) {}
+    return DEFAULT_ENVIRONMENTS;
+  });
+
+  const [newEnvName, setNewEnvName] = useState('');
+  const [showAddEnv, setShowAddEnv] = useState(false);
+
+  const handleAddEnvironment = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newEnvName.trim()) return;
+    const newId = `env_${Date.now()}`;
+    const updated = [
+      ...environments,
+      {
+        id: newId,
+        name: `🏷️ ${newEnvName.trim()}`,
+        desc: 'Entorno personalizado de contactos'
+      }
+    ];
+    setEnvironments(updated);
+    localStorage.setItem('family_custom_environments', JSON.stringify(updated));
+    setNewEnvName('');
+    setShowAddEnv(false);
+  };
+
+  const handleDeleteEnvironment = (envId: string) => {
+    if (envId === 'all' || envId === 'family') return;
+    const updated = environments.filter((e) => e.id !== envId);
+    setEnvironments(updated);
+    localStorage.setItem('family_custom_environments', JSON.stringify(updated));
+    if (currentEnvironment === envId) {
+      onSelectEnvironment('family');
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 select-none">
@@ -264,31 +320,87 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           {/* 3. SECTOR: ENTORNO ACTIVO */}
           <div className="p-4 bg-slate-950/70 rounded-2xl border border-slate-800 space-y-3">
-            <div className="flex items-center gap-2 text-indigo-400 text-xs font-bold uppercase tracking-wider">
-              <Layers className="w-4 h-4" /> Entornos Compartimentados
+            <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider">
+              <div className="flex items-center gap-2 text-indigo-400">
+                <Layers className="w-4 h-4" /> Entornos Compartimentados
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddEnv(!showAddEnv)}
+                className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-semibold capitalize"
+              >
+                <Plus className="w-3.5 h-3.5" /> Nuevo entorno
+              </button>
             </div>
+
+            {/* Form to add custom environment */}
+            {showAddEnv && (
+              <form onSubmit={handleAddEnvironment} className="p-3 bg-slate-900 border border-indigo-500/30 rounded-xl space-y-2">
+                <span className="text-xs font-bold text-white block">Crear nuevo entorno:</span>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newEnvName}
+                    onChange={(e) => setNewEnvName(e.target.value)}
+                    placeholder="Ej. Colegio, Scouts, Amigos..."
+                    className="flex-1 py-1.5 px-3 rounded-lg bg-slate-950 border border-slate-700 text-white text-xs placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                    autoFocus
+                  />
+                  <button
+                    type="submit"
+                    disabled={!newEnvName.trim()}
+                    className="py-1.5 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white font-bold text-xs shadow"
+                  >
+                    Guardar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddEnv(false)}
+                    className="py-1.5 px-2 rounded-lg bg-slate-800 text-slate-400 hover:text-white text-xs"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </form>
+            )}
+
             <div className="space-y-2">
               {environments.map((env) => (
-                <button
+                <div
                   key={env.id}
-                  type="button"
-                  onClick={() => onSelectEnvironment(env.id)}
-                  className={`w-full p-3 rounded-xl border text-left transition-all ${
+                  className={`w-full p-3 rounded-xl border flex items-center justify-between transition-all ${
                     currentEnvironment === env.id
                       ? 'border-indigo-500 bg-indigo-500/20 text-white shadow-md'
                       : 'border-slate-800 bg-slate-900/60 hover:border-slate-700 text-slate-300'
                   }`}
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-xs">{env.name}</span>
-                    {currentEnvironment === env.id && (
-                      <span className="text-[10px] text-emerald-400 font-bold flex items-center gap-1">
-                        <Check className="w-3 h-3" /> Activo
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[10px] text-slate-400 mt-0.5">{env.desc}</p>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => onSelectEnvironment(env.id)}
+                    className="flex-1 text-left min-w-0 pr-2"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-xs truncate">{env.name}</span>
+                      {currentEnvironment === env.id && (
+                        <span className="text-[10px] text-emerald-400 font-bold flex items-center gap-1 flex-shrink-0">
+                          <Check className="w-3 h-3" /> Activo
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-0.5 truncate">{env.desc}</p>
+                  </button>
+
+                  {!env.isFixed && (
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteEnvironment(env.id)}
+                      className="p-1.5 text-slate-500 hover:text-red-400 rounded-lg hover:bg-red-500/10 transition-colors flex-shrink-0"
+                      title="Eliminar este entorno"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               ))}
             </div>
           </div>

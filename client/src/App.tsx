@@ -18,6 +18,7 @@ import { InviteModal } from './components/InviteModal';
 import { ParentPinModal } from './components/ParentPinModal';
 import { FamilyPhotosVault } from './components/FamilyPhotosVault';
 import { SettingsModal } from './components/SettingsModal';
+import { AvatarCropperModal } from './components/AvatarCropperModal';
 import { Shield, Camera, Lock, User, Upload, Mail } from 'lucide-react';
 import { API_BASE, WS_BASE } from './config';
 
@@ -83,6 +84,7 @@ export function App() {
   const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [rawAvatarToCrop, setRawAvatarToCrop] = useState<string | null>(null);
   const avatarFileInputRef = useRef<HTMLInputElement | null>(null);
   const [roleInput, setRoleInput] = useState<'guardian' | 'teen' | 'kid'>('guardian');
   const [ageInput, setAgeInput] = useState<number>(35);
@@ -978,35 +980,10 @@ export function App() {
 
     const reader = new FileReader();
     reader.onload = () => {
-      const img = new window.Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const maxDim = 160;
-        let w = img.width;
-        let h = img.height;
-        if (w > h) {
-          if (w > maxDim) {
-            h = Math.round((h * maxDim) / w);
-            w = maxDim;
-          }
-        } else {
-          if (h > maxDim) {
-            w = Math.round((w * maxDim) / h);
-            h = maxDim;
-          }
-        }
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, w, h);
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-          setAvatarPreview(dataUrl);
-        }
-      };
-      img.src = reader.result as string;
+      setRawAvatarToCrop(reader.result as string);
     };
     reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   const handleAuth = async (e: React.FormEvent) => {
@@ -1256,6 +1233,18 @@ export function App() {
             </button>
           </form>
         </div>
+
+        {rawAvatarToCrop && (
+          <AvatarCropperModal
+            isOpen={!!rawAvatarToCrop}
+            imageSrc={rawAvatarToCrop}
+            onClose={() => setRawAvatarToCrop(null)}
+            onCropComplete={(cropped) => {
+              setAvatarPreview(cropped);
+              setRawAvatarToCrop(null);
+            }}
+          />
+        )}
       </div>
     );
   }
@@ -1314,7 +1303,14 @@ export function App() {
           onClearChat={handleClearChat}
           onLogout={handleLogout}
           onOpenPhotosVault={() => setCurrentTab('photos')}
-          onOpenSettings={() => setShowSettingsModal(true)}
+          onOpenSettings={() => {
+            executeWithPinPrompt(
+              () => setShowSettingsModal(true),
+              'Ajustes Protegidos por Guardián',
+              'Para proteger a los menores, el acceso a los ajustes requiere el PIN de tus padres.',
+              true
+            );
+          }}
           unlockedProtectedPhotos={unlockedProtectedPhotos}
           onUnlockProtectedPhoto={handleUnlockProtectedPhoto}
           onUserUpdated={handleUserUpdated}
@@ -1363,7 +1359,14 @@ export function App() {
           onClearChat={handleClearChat}
           onLogout={handleLogout}
           onOpenPhotosVault={() => setCurrentTab('photos')}
-          onOpenSettings={() => setShowSettingsModal(true)}
+          onOpenSettings={() => {
+            executeWithPinPrompt(
+              () => setShowSettingsModal(true),
+              'Ajustes Protegidos por Guardián',
+              'Para proteger a los menores, el acceso a los ajustes requiere el PIN de tus padres.',
+              true
+            );
+          }}
           unlockedProtectedPhotos={unlockedProtectedPhotos}
           onUnlockProtectedPhoto={handleUnlockProtectedPhoto}
           onUserUpdated={handleUserUpdated}

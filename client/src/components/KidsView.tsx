@@ -6,6 +6,7 @@ import { DeleteOptionsModal } from './DeleteOptionsModal';
 import { EditMessageModal } from './EditMessageModal';
 import { ClearChatModal } from './ClearChatModal';
 import { AvatarEditorModal } from './AvatarEditorModal';
+import { FullscreenMediaModal } from './FullscreenMediaModal';
 
 interface KidsViewProps {
   currentUser: any;
@@ -54,6 +55,7 @@ export const KidsView: React.FC<KidsViewProps> = ({
   const [editTargetMsg, setEditTargetMsg] = useState<any | null>(null);
   const [showClearModal, setShowClearModal] = useState(false);
   const [showAvatarModal, setShowAvatarModal] = useState(false);
+  const [fullscreenMedia, setFullscreenMedia] = useState<{ url: string; title: string; subtitle?: string } | null>(null);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -108,14 +110,24 @@ export const KidsView: React.FC<KidsViewProps> = ({
           )}
           <div className="flex items-center gap-2 sm:gap-3">
             <div
-              onClick={() => !activeContact && setShowAvatarModal(true)}
-              className={`relative ${!activeContact ? 'cursor-pointer group' : ''}`}
-              title={!activeContact ? 'Cambiar tu avatar divertido' : undefined}
+              onClick={() => {
+                if (activeContact) {
+                  setFullscreenMedia({
+                    url: activeContact.avatar,
+                    title: activeContact.username,
+                    subtitle: 'Foto de perfil'
+                  });
+                } else {
+                  setShowAvatarModal(true);
+                }
+              }}
+              className="relative cursor-pointer group"
+              title={!activeContact ? 'Cambiar tu avatar divertido' : 'Ver foto en grande'}
             >
               <img
                 src={activeContact ? activeContact.avatar : currentUser.avatar}
                 alt="Avatar"
-                className="w-9 h-9 sm:w-11 sm:h-11 rounded-full border-2 border-white shadow-sm bg-white object-cover"
+                className="w-9 h-9 sm:w-11 sm:h-11 rounded-full border-2 border-white shadow-sm bg-white object-cover group-hover:scale-105 transition-transform"
               />
               {!activeContact && (
                 <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
@@ -264,7 +276,18 @@ export const KidsView: React.FC<KidsViewProps> = ({
                               <span className="text-xs font-bold text-amber-700">Pídele a tus papás que la desbloqueen</span>
                             </div>
                           ) : msg.decryptedMediaUrl ? (
-                            <img src={msg.decryptedMediaUrl} alt="Foto" className="w-full h-auto object-cover" />
+                            <img
+                              src={msg.decryptedMediaUrl}
+                              alt="Foto"
+                              className="w-full h-auto object-cover cursor-pointer hover:opacity-95 transition-opacity active:scale-[0.98]"
+                              onClick={() =>
+                                setFullscreenMedia({
+                                  url: msg.decryptedMediaUrl,
+                                  title: isMine ? 'Mi foto' : activeContact.username,
+                                  subtitle: new Date(msg.timestamp).toLocaleString()
+                                })
+                              }
+                            />
                           ) : (
                             <div className="p-8 text-center bg-amber-100 text-xs">Cargando foto segura...</div>
                           )}
@@ -328,7 +351,7 @@ export const KidsView: React.FC<KidsViewProps> = ({
             {/* Bottom Giant Action Bar (Mobile Responsive) */}
             <div className="flex-shrink-0 p-2 sm:p-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] bg-amber-200/90 border-t-2 sm:border-t-3 border-amber-300 backdrop-blur z-10">
               <form onSubmit={handleSendText} className="flex items-center gap-1.5 sm:gap-2.5 max-w-3xl mx-auto w-full">
-                <PhotoSender onSendPhoto={onSendPhoto} theme="kid" />
+                <PhotoSender onSendPhoto={onSendPhoto} theme="kid" isRecipientMinor={true} />
                 <AudioRecorder onSendAudio={onSendAudio} theme="kid" />
 
                 <input
@@ -400,6 +423,14 @@ export const KidsView: React.FC<KidsViewProps> = ({
         onAvatarUpdated={(newAvatar) => {
           if (onUserUpdated) onUserUpdated({ ...currentUser, avatar: newAvatar });
         }}
+      />
+
+      <FullscreenMediaModal
+        isOpen={!!fullscreenMedia}
+        onClose={() => setFullscreenMedia(null)}
+        mediaUrl={fullscreenMedia?.url || ''}
+        title={fullscreenMedia?.title || ''}
+        subtitle={fullscreenMedia?.subtitle}
       />
     </div>
   );

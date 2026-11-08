@@ -43,6 +43,11 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
             <p className="text-xs text-slate-400">
               Puedes recargar la aplicación o restaurar la sesión para continuar de forma segura.
             </p>
+            {this.state.error && (
+              <div className="p-2.5 rounded-xl bg-red-950/40 border border-red-500/20 text-[11px] font-mono text-red-300 break-words text-left max-h-24 overflow-y-auto">
+                {this.state.error.message || String(this.state.error)}
+              </div>
+            )}
             <div className="pt-2 flex flex-col gap-2">
               <button
                 onClick={() => window.location.reload()}

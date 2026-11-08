@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
-import { X, Camera, Upload, Check, Sparkles, User } from 'lucide-react';
+import { X, Camera, Upload, Check, Sparkles, User, Crop } from 'lucide-react';
 import { API_BASE } from '../config';
+import { AvatarCropperModal } from './AvatarCropperModal';
 
 interface AvatarEditorModalProps {
   isOpen: boolean;
@@ -16,6 +17,7 @@ export const AvatarEditorModal: React.FC<AvatarEditorModalProps> = ({
   onAvatarUpdated
 }) => {
   const [selectedPreview, setSelectedPreview] = useState<string | null>(currentUser?.avatar || null);
+  const [rawImageToCrop, setRawImageToCrop] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -44,33 +46,7 @@ export const AvatarEditorModal: React.FC<AvatarEditorModalProps> = ({
 
     const reader = new FileReader();
     reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const maxDim = 250;
-        let w = img.width;
-        let h = img.height;
-        if (w > h) {
-          if (w > maxDim) {
-            h = Math.round((h * maxDim) / w);
-            w = maxDim;
-          }
-        } else {
-          if (h > maxDim) {
-            w = Math.round((w * maxDim) / h);
-            h = maxDim;
-          }
-        }
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, w, h);
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
-          setSelectedPreview(dataUrl);
-        }
-      };
-      img.src = reader.result as string;
+      setRawImageToCrop(reader.result as string);
     };
     reader.readAsDataURL(file);
     e.target.value = '';
@@ -187,6 +163,19 @@ export const AvatarEditorModal: React.FC<AvatarEditorModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Interactive Avatar Cropper with Zoom and Pan */}
+      {rawImageToCrop && (
+        <AvatarCropperModal
+          isOpen={!!rawImageToCrop}
+          imageSrc={rawImageToCrop}
+          onClose={() => setRawImageToCrop(null)}
+          onCropComplete={(croppedDataUrl) => {
+            setSelectedPreview(croppedDataUrl);
+            setRawImageToCrop(null);
+          }}
+        />
+      )}
     </div>
   );
 };

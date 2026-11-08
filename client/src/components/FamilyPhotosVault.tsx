@@ -121,39 +121,40 @@ export const FamilyPhotosVault: React.FC<FamilyPhotosVaultProps> = ({
 
   return (
     <div className="flex flex-col h-full h-[100dvh] max-h-[100dvh] bg-slate-950 text-white font-sans select-none overflow-hidden">
-      {/* Header */}
-      <header className="p-4 border-b border-slate-800 bg-slate-900/90 backdrop-blur flex items-center justify-between flex-shrink-0 z-20">
-        <div className="flex items-center gap-3">
+      {/* Streamlined Mobile-First Header */}
+      <header className="px-3 py-2.5 sm:px-4 sm:py-3 border-b border-slate-800 bg-slate-900/90 backdrop-blur flex items-center justify-between flex-shrink-0 z-20 gap-2">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <button
             onClick={() => {
               if (selectedContactId) setSelectedContactId(null);
               else onBackToChat();
             }}
-            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors flex-shrink-0"
             title="Volver"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className="font-black text-base tracking-tight text-white flex items-center gap-1.5">
-                📸 Bóveda de Fotos Familiar
-              </span>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              <h1 className="font-bold text-sm sm:text-base tracking-tight text-white truncate">
+                📸 Bóveda de Fotos
+              </h1>
+              <span className="hidden md:inline-flex text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                 Sandbox Estanco
               </span>
             </div>
-            <p className="text-[11px] text-slate-400 mt-0.5">
-              Tus fotos familiares protegidas sin contaminar Google Fotos ni tu carrete
+            <p className="hidden sm:block text-[11px] text-slate-400 truncate">
+              Tus fotos familiares protegidas sin contaminar tu galería
             </p>
           </div>
         </div>
 
         <button
           onClick={onBackToChat}
-          className="text-xs font-semibold px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-md flex items-center gap-1.5 transition-all"
+          className="text-xs font-semibold px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-md flex items-center gap-1.5 transition-all flex-shrink-0 active:scale-95"
         >
-          💬 Volver al Chat
+          <span>💬</span>
+          <span className="hidden xs:inline">Chat</span>
         </button>
       </header>
 

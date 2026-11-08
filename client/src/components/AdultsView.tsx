@@ -9,6 +9,7 @@ import { AvatarEditorModal } from './AvatarEditorModal';
 import { AddChildModal } from './AddChildModal';
 import { ConnectKidsModal } from './ConnectKidsModal';
 import { HandshakeRequestsModal } from './HandshakeRequestsModal';
+import { FullscreenMediaModal } from './FullscreenMediaModal';
 
 interface AdultsViewProps {
   currentUser: any;
@@ -75,6 +76,7 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
   const [showConnectKidsModal, setShowConnectKidsModal] = useState(false);
   const [connectTargetGuardian, setConnectTargetGuardian] = useState<any>(null);
   const [showHandshakesModal, setShowHandshakesModal] = useState(false);
+  const [fullscreenMedia, setFullscreenMedia] = useState<{ url: string; title: string; subtitle?: string } | null>(null);
   const [envFilter, setEnvFilter] = useState<'all' | 'family' | 'church' | 'work'>('all');
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -452,7 +454,16 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
                           </div>
                         )}
                         {msg.decryptedMediaUrl ? (
-                          <img src={msg.decryptedMediaUrl} alt="" className="w-full h-auto object-cover" />
+                          <img
+                            src={msg.decryptedMediaUrl}
+                            alt=""
+                            onClick={() => setFullscreenMedia({
+                              url: msg.decryptedMediaUrl,
+                              title: `Foto supervisada (${new Date(msg.timestamp).toLocaleString()})`
+                            })}
+                            className="w-full h-auto object-cover cursor-pointer hover:opacity-95 transition-opacity"
+                            title="Toca para ver en pantalla completa"
+                          />
                         ) : (
                           <div className="p-4 text-xs text-slate-400 bg-slate-800 text-center">Cargando foto...</div>
                         )}
@@ -500,7 +511,13 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
                 <img
                   src={activeContact.avatar}
                   alt=""
-                  className="w-10 h-10 rounded-full border border-slate-700 object-cover bg-slate-800 shadow"
+                  onClick={() => setFullscreenMedia({
+                    url: activeContact.avatar,
+                    title: activeContact.username,
+                    subtitle: `Foto de perfil (${activeContact.role})`
+                  })}
+                  className="w-10 h-10 rounded-full border border-slate-700 object-cover bg-slate-800 shadow cursor-pointer hover:ring-2 hover:ring-indigo-500/80 transition-all"
+                  title="Toca para ver foto de perfil en grande"
                 />
                 <div>
                   <h3 className="font-bold text-sm text-white">{activeContact.username}</h3>
@@ -586,7 +603,17 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
                                   <span className="text-[10px] text-slate-400">Toca para desbloquear</span>
                                 </div>
                               ) : msg.decryptedMediaUrl ? (
-                                <img src={msg.decryptedMediaUrl} alt="Foto" className="w-full h-auto object-cover" />
+                                <img
+                                  src={msg.decryptedMediaUrl}
+                                  alt="Foto"
+                                  onClick={() => setFullscreenMedia({
+                                    url: msg.decryptedMediaUrl,
+                                    title: isMine ? 'Mi foto enviada' : `Foto de ${activeContact.username}`,
+                                    subtitle: new Date(msg.timestamp).toLocaleString()
+                                  })}
+                                  className="w-full h-auto object-cover cursor-pointer hover:opacity-95 transition-opacity"
+                                  title="Toca para ver en pantalla completa"
+                                />
                               ) : (
                                 <div className="p-4 text-xs text-slate-400 text-center">Descifrando foto...</div>
                               )}
@@ -643,7 +670,15 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
             {/* Input Bar (Footer) */}
             <div className="p-3 border-t border-slate-800 bg-slate-900 flex-shrink-0 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
               <form onSubmit={handleSend} className="flex items-center gap-2 max-w-4xl mx-auto">
-                <PhotoSender onSendPhoto={onSendPhoto} theme="adult" />
+                <PhotoSender
+                  onSendPhoto={onSendPhoto}
+                  theme="adult"
+                  isRecipientMinor={Boolean(activeContact && (
+                    activeContact.role === 'kid' ||
+                    activeContact.role === 'teen' ||
+                    (activeContact.age !== undefined && activeContact.age < 18)
+                  ))}
+                />
                 <AudioRecorder onSendAudio={onSendAudio} theme="adult" />
 
                 <input
@@ -758,6 +793,14 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
           if (onRefreshContacts) onRefreshContacts();
           if (onRefreshHandshakes) onRefreshHandshakes();
         }}
+      />
+
+      <FullscreenMediaModal
+        isOpen={!!fullscreenMedia}
+        onClose={() => setFullscreenMedia(null)}
+        mediaUrl={fullscreenMedia?.url || null}
+        title={fullscreenMedia?.title}
+        subtitle={fullscreenMedia?.subtitle}
       />
     </div>
   );
