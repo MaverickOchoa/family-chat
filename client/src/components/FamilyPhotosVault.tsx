@@ -10,9 +10,9 @@ import {
   ShieldCheck, 
   X, 
   User, 
-  Sparkles,
-  CheckCircle2,
-  AlertTriangle
+  Sparkles, 
+  CheckCircle2, 
+  AlertTriangle 
 } from 'lucide-react';
 import { DeleteOptionsModal } from './DeleteOptionsModal';
 
@@ -28,8 +28,8 @@ interface FamilyPhotosVaultProps {
 
 export const FamilyPhotosVault: React.FC<FamilyPhotosVaultProps> = ({
   currentUser,
-  contacts,
-  messages,
+  contacts = [],
+  messages = [],
   onBackToChat,
   onDeleteMessage,
   onDeleteChatPhotos,
@@ -42,20 +42,31 @@ export const FamilyPhotosVault: React.FC<FamilyPhotosVaultProps> = ({
   const [deletePhotoTarget, setDeletePhotoTarget] = useState<any | null>(null);
   const [showClearAlbumModal, setShowClearAlbumModal] = useState<string | null>(null);
 
+  if (!currentUser) {
+    return (
+      <div className="flex h-screen bg-slate-950 items-center justify-center text-slate-400 text-sm">
+        Cargando Bóveda de Fotos...
+      </div>
+    );
+  }
+
+  const safeContacts = Array.isArray(contacts) ? contacts.filter(Boolean) : [];
+  const safeMessages = Array.isArray(messages) ? messages.filter(Boolean) : [];
+
   // Extract general family photos (PUBLIC: Strictly excludes protected photos!)
-  const publicPhotos = messages.filter((m) => m.type === 'image' && m.decryptedMediaUrl && !m.isProtected);
+  const publicPhotos = safeMessages.filter((m) => m && m.type === 'image' && m.decryptedMediaUrl && !m.isProtected);
 
   // Photos grouped by contact (Strictly public photos only - never leak protected photos in albums)
   const getContactPhotos = (contactId: string) => {
     return publicPhotos.filter(
       (m) =>
-        (m.fromUserId === currentUser.id && m.toUserId === contactId) ||
-        (m.fromUserId === contactId && m.toUserId === currentUser.id)
+        (m.fromUserId === currentUser?.id && m.toUserId === contactId) ||
+        (m.fromUserId === contactId && m.toUserId === currentUser?.id)
     );
   };
 
   // Protected photos (CONFIDENTIAL: ONLY shown inside the PIN-unlocked Vault)
-  const protectedPhotos = messages.filter((m) => m.type === 'image' && m.decryptedMediaUrl && m.isProtected);
+  const protectedPhotos = safeMessages.filter((m) => m && m.type === 'image' && m.isProtected);
 
   // Download photo to phone camera roll (opt-in explicit download)
   const handleDownload = (photoUrl: string, filename: string = 'familia-foto.jpg') => {
@@ -83,29 +94,29 @@ export const FamilyPhotosVault: React.FC<FamilyPhotosVaultProps> = ({
     }
   };
 
-  const selectedContact = contacts.find((c) => c.id === selectedContactId);
+  const selectedContact = safeContacts.find((c) => c && c.id === selectedContactId);
   const selectedAlbumPhotos = selectedContactId ? getContactPhotos(selectedContactId) : [];
 
-  const targetContact = contacts.find(
+  const targetContact = safeContacts.find(
     (c) =>
       deletePhotoTarget &&
-      (c.id === (deletePhotoTarget.fromUserId === currentUser.id ? deletePhotoTarget.toUserId : deletePhotoTarget.fromUserId))
+      (c && c.id === (deletePhotoTarget.fromUserId === currentUser?.id ? deletePhotoTarget.toUserId : deletePhotoTarget.fromUserId))
   );
-  const targetIsMinor = targetContact && (
+  const targetIsMinor = Boolean(targetContact && (
     targetContact.role === 'kid' ||
     targetContact.role === 'teen' ||
     (targetContact.age !== undefined && targetContact.age < 18)
-  );
-  const isLegalGuardianOfTarget = targetIsMinor && targetContact.guardianId === currentUser.id;
+  ));
+  const isLegalGuardianOfTarget = Boolean(targetIsMinor && targetContact?.guardianId === currentUser?.id);
   const canDeleteForEveryone = !targetIsMinor || isLegalGuardianOfTarget;
 
-  const albumContact = contacts.find((c) => c.id === showClearAlbumModal);
-  const albumContactIsMinor = albumContact && (
+  const albumContact = safeContacts.find((c) => c && c.id === showClearAlbumModal);
+  const albumContactIsMinor = Boolean(albumContact && (
     albumContact.role === 'kid' ||
     albumContact.role === 'teen' ||
     (albumContact.age !== undefined && albumContact.age < 18)
-  );
-  const isLegalGuardianOfAlbumContact = albumContactIsMinor && albumContact.guardianId === currentUser.id;
+  ));
+  const isLegalGuardianOfAlbumContact = Boolean(albumContactIsMinor && albumContact?.guardianId === currentUser?.id);
   const canClearAlbumForEveryone = !albumContactIsMinor || isLegalGuardianOfAlbumContact;
 
   return (
@@ -157,7 +168,7 @@ export const FamilyPhotosVault: React.FC<FamilyPhotosVaultProps> = ({
                 : 'bg-slate-800/80 text-slate-400 hover:text-white'
             }`}
           >
-            <Folder className="w-4 h-4" /> Álbumes por Familiar ({contacts.length})
+            <Folder className="w-4 h-4" /> Álbumes por Familiar ({safeContacts.length})
           </button>
 
           <button
@@ -168,7 +179,7 @@ export const FamilyPhotosVault: React.FC<FamilyPhotosVaultProps> = ({
                 : 'bg-slate-800/80 text-slate-400 hover:text-white'
             }`}
           >
-            <ImageIcon className="w-4 h-4" /> Todas las Fotos ({allPhotos.length})
+            <ImageIcon className="w-4 h-4" /> Todas las Fotos ({publicPhotos.length})
           </button>
 
           <button
@@ -249,7 +260,7 @@ export const FamilyPhotosVault: React.FC<FamilyPhotosVaultProps> = ({
         {!selectedContactId && activeTab === 'albums' && (
           <div className="max-w-5xl mx-auto space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-              {contacts.map((contact) => {
+              {safeContacts.map((contact) => {
                 const photos = getContactPhotos(contact.id);
                 const latestPhoto = photos[photos.length - 1];
 
@@ -396,11 +407,18 @@ export const FamilyPhotosVault: React.FC<FamilyPhotosVaultProps> = ({
                     onClick={() => setActiveLightboxPhoto(photo)}
                     className="group relative aspect-square rounded-2xl overflow-hidden bg-slate-900 border border-amber-500/30 cursor-pointer shadow-md hover:border-amber-400 transition-all hover:scale-[1.02]"
                   >
-                    <img
-                      src={photo.decryptedMediaUrl}
-                      alt="Foto protegida"
-                      className="w-full h-full object-cover"
-                    />
+                    {photo.decryptedMediaUrl ? (
+                      <img
+                        src={photo.decryptedMediaUrl}
+                        alt="Foto protegida"
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex flex-col items-center justify-center p-2 bg-slate-900 text-center">
+                        <Lock className="w-6 h-6 text-amber-400 mb-1" />
+                        <span className="text-[10px] text-slate-400">Foto protegida</span>
+                      </div>
+                    )}
                     <div className="absolute top-2 right-2 p-1 bg-amber-500 text-slate-950 rounded-lg shadow">
                       <Lock className="w-3 h-3" />
                     </div>
@@ -436,22 +454,31 @@ export const FamilyPhotosVault: React.FC<FamilyPhotosVaultProps> = ({
 
             {/* Photo Display */}
             <div className="relative w-full max-h-[70vh] flex items-center justify-center overflow-hidden rounded-2xl bg-black">
-              <img
-                src={activeLightboxPhoto.decryptedMediaUrl}
-                alt="Foto"
-                className="max-h-[70vh] w-auto max-w-full object-contain rounded-xl shadow-2xl"
-              />
+              {activeLightboxPhoto.decryptedMediaUrl ? (
+                <img
+                  src={activeLightboxPhoto.decryptedMediaUrl}
+                  alt="Foto"
+                  className="max-h-[70vh] w-auto max-w-full object-contain rounded-xl shadow-2xl"
+                />
+              ) : (
+                <div className="p-8 text-center text-slate-400">
+                  <Lock className="w-12 h-12 mx-auto text-amber-400 mb-2" />
+                  <p className="text-sm font-semibold">Foto Cifrada Protegida</p>
+                </div>
+              )}
             </div>
 
             {/* Bottom Actions Bar */}
             <div className="w-full pt-4 flex items-center justify-between gap-3">
-              <button
-                type="button"
-                onClick={() => handleDownload(activeLightboxPhoto.decryptedMediaUrl, `familia_${activeLightboxPhoto.id}.jpg`)}
-                className="py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg transition-transform active:scale-95"
-              >
-                <Download className="w-4 h-4" /> Guardar en mi Carrete
-              </button>
+              {activeLightboxPhoto.decryptedMediaUrl && (
+                <button
+                  type="button"
+                  onClick={() => handleDownload(activeLightboxPhoto.decryptedMediaUrl, `familia_${activeLightboxPhoto.id}.jpg`)}
+                  className="py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg transition-transform active:scale-95"
+                >
+                  <Download className="w-4 h-4" /> Guardar en mi Carrete
+                </button>
+              )}
 
               <button
                 type="button"
@@ -459,7 +486,7 @@ export const FamilyPhotosVault: React.FC<FamilyPhotosVaultProps> = ({
                   setDeletePhotoTarget(activeLightboxPhoto);
                   setActiveLightboxPhoto(null);
                 }}
-                className="py-2.5 px-4 rounded-xl border border-red-500/40 bg-red-500/10 hover:bg-red-500/20 text-red-400 font-bold text-xs flex items-center gap-2 transition-colors"
+                className="py-2.5 px-4 rounded-xl border border-red-500/40 bg-red-500/10 hover:bg-red-500/20 text-red-400 font-bold text-xs flex items-center gap-2 transition-colors ml-auto"
               >
                 <Trash2 className="w-4 h-4" /> Eliminar Foto
               </button>
@@ -474,8 +501,8 @@ export const FamilyPhotosVault: React.FC<FamilyPhotosVaultProps> = ({
         onClose={() => setDeletePhotoTarget(null)}
         onDeleteForMe={() => deletePhotoTarget && onDeleteMessage(deletePhotoTarget.id, 'for_me')}
         onDeleteForEveryone={() => deletePhotoTarget && onDeleteMessage(deletePhotoTarget.id, 'for_everyone')}
-        isMine={deletePhotoTarget?.fromUserId === currentUser.id}
-        isGuardian={currentUser.role === 'guardian'}
+        isMine={deletePhotoTarget?.fromUserId === currentUser?.id}
+        isGuardian={currentUser?.role === 'guardian'}
         canDeleteForEveryone={canDeleteForEveryone}
         everyoneRestrictionReason={
           !canDeleteForEveryone
