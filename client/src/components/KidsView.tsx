@@ -219,6 +219,16 @@ export const KidsView: React.FC<KidsViewProps> = ({
                         ⛪ Iglesia
                       </span>
                     )}
+                    {(() => {
+                      const unread = messages.filter(
+                        (m) => m && m.fromUserId === contact.id && m.toUserId === currentUser.id && m.status !== 'read'
+                      ).length;
+                      return unread > 0 ? (
+                        <span className="absolute top-3 left-3 text-[11px] font-black bg-red-500 text-white px-2 py-0.5 rounded-full shadow-md">
+                          🔔 {unread} {unread === 1 ? 'nuevo' : 'nuevos'}
+                        </span>
+                      ) : null;
+                    })()}
                     <div className="relative mb-3">
                       <img
                         src={contact.avatar}

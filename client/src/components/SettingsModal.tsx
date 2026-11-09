@@ -22,6 +22,7 @@ import {
   Plus
 } from 'lucide-react';
 import { API_BASE } from '../config';
+import { triggerDeviceNotification } from '../utils/notifications';
 
 interface CustomEnvironment {
   id: string;
@@ -159,7 +160,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       const permission = await Notification.requestPermission();
       setNotificationStatus(permission);
       if (permission === 'granted') {
-        new Notification('🔔 FamilyChat Conectado', {
+        triggerDeviceNotification('🔔 FamilyChat Conectado', {
           body: '¡Notificaciones familiares activas! Recibirás avisos de nuevos mensajes y fotos.',
           icon: '/favicon.svg'
         });
@@ -171,7 +172,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleSendTestNotification = () => {
     if (Notification.permission === 'granted') {
-      new Notification('👨‍👩‍👧‍👦 Mensaje Familiar de Prueba', {
+      triggerDeviceNotification('👨‍👩‍👧‍👦 Mensaje Familiar de Prueba', {
         body: 'El canal cifrado de notificaciones funciona a la perfección.',
         icon: '/favicon.svg'
       });

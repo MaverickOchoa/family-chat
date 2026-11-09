@@ -21,6 +21,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { AvatarCropperModal } from './components/AvatarCropperModal';
 import { Shield, Camera, Lock, User, Upload, Mail } from 'lucide-react';
 import { API_BASE, WS_BASE } from './config';
+import { triggerDeviceNotification, updateAppBadge } from './utils/notifications';
 
 // Universal UUID generator that works in any context (HTTP, LAN IP, older mobile browsers)
 function safeUUID(): string {
@@ -210,8 +211,8 @@ export function App() {
         } else if (data.type === 'handshake_request' || data.type === 'handshake_accepted' || data.type === 'handshake_rejected') {
           fetchHandshakes();
           fetchContacts();
-          if (data.type === 'handshake_request' && 'Notification' in window && Notification.permission === 'granted') {
-            new Notification('🤝 Solicitud Familiar', {
+          if (data.type === 'handshake_request') {
+            triggerDeviceNotification('🤝 Solicitud Familiar', {
               body: `${data.handshake?.fromGuardianName || 'Una madre'} solicita conectar a sus hijos.`,
               icon: '/favicon.svg'
             });
@@ -290,6 +291,32 @@ export function App() {
       );
     }
   }, [activeContact?.id, messages.length]);
+
+  // Update App Badge on Phone Home Screen and browser title
+  useEffect(() => {
+    if (!currentUser) return;
+    const unreadCount = messages.filter(
+      (m) => m && m.toUserId === currentUser.id && m.status !== 'read'
+    ).length;
+
+    updateAppBadge(unreadCount);
+  }, [messages, currentUser]);
+
+  // Listen for Service Worker click navigation to open contact
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      const handleSwMessage = (event: MessageEvent) => {
+        if (event.data && event.data.type === 'OPEN_CONTACT' && event.data.contactId) {
+          const target = contacts.find((c) => c.id === event.data.contactId);
+          if (target) {
+            setActiveContact(target);
+          }
+        }
+      };
+      navigator.serviceWorker.addEventListener('message', handleSwMessage);
+      return () => navigator.serviceWorker.removeEventListener('message', handleSwMessage);
+    }
+  }, [contacts]);
 
   // Decrypt incoming message
   const handleIncomingPacket = async (pkt: any) => {
@@ -374,32 +401,29 @@ export function App() {
       } else {
         playNotificationSoundAndVibrate();
 
-        if ('Notification' in window && Notification.permission === 'granted') {
-          const senderContact = contacts.find((c) => c.id === pkt.fromUserId);
-          const senderName = senderContact?.username || 'Familiar';
-          const preview =
-            pkt.type === 'text'
-              ? decryptedText || 'Nuevo mensaje'
-              : pkt.type === 'image'
-              ? '📸 Foto recibida'
-              : '🎤 Nota de voz recibida';
+        const senderContact = contacts.find((c) => c.id === pkt.fromUserId);
+        const senderName = senderContact?.username || 'Familiar';
+        const preview =
+          pkt.type === 'text'
+            ? decryptedText || 'Nuevo mensaje'
+            : pkt.type === 'image'
+            ? '📸 Foto recibida'
+            : '🎤 Nota de voz recibida';
 
-          try {
-            const notif = new Notification(`💬 ${senderName}`, {
-              body: preview,
-              icon: senderContact?.avatar || '/favicon.svg',
-              tag: `family_chat_${pkt.fromUserId}`
-            });
-            notif.onclick = () => {
-              window.focus();
-              if (senderContact) {
-                setActiveContact(senderContact);
-              }
-            };
-          } catch (e) {
-            console.error('Notification error:', e);
+        triggerDeviceNotification(`💬 ${senderName}`, {
+          body: preview,
+          icon: senderContact?.avatar || '/favicon.svg',
+          tag: `family_chat_${pkt.fromUserId}`,
+          data: {
+            contactId: pkt.fromUserId
+          },
+          onclick: () => {
+            window.focus();
+            if (senderContact) {
+              setActiveContact(senderContact);
+            }
           }
-        }
+        });
       }
     }
   };

@@ -365,7 +365,7 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
                           </span>
                         </div>
                       </div>
-                      <div className="text-xs truncate flex items-center gap-1 mt-0.5">
+                      <div className="text-xs truncate flex items-center justify-between gap-1 mt-0.5">
                         {onlineUsers.has(contact.id) ? (
                           <span className="text-emerald-400 text-[11px] font-semibold flex items-center gap-1">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" /> En línea
@@ -375,6 +375,17 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
                             <span className="w-1.5 h-1.5 rounded-full bg-slate-600 inline-block" /> Canal seguro
                           </span>
                         )}
+
+                        {(() => {
+                          const unreadCount = messages.filter(
+                            (m) => m && m.fromUserId === contact.id && m.toUserId === currentUser.id && m.status !== 'read'
+                          ).length;
+                          return unreadCount > 0 ? (
+                            <span className="px-2 py-0.5 rounded-full bg-indigo-600 text-white text-[10px] font-bold shadow-md flex-shrink-0 animate-pulse">
+                              {unreadCount}
+                            </span>
+                          ) : null;
+                        })()}
                       </div>
                     </div>
                   </button>
