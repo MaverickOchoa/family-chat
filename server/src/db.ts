@@ -367,6 +367,32 @@ class Database {
     return false;
   }
 
+  toggleReaction(messageId: string, emoji: string, userId: string): Record<string, string[]> | null {
+    const msg = this.data.messages.find(m => m.id === messageId);
+    if (!msg) return null;
+
+    if (!msg.reactions) {
+      msg.reactions = {};
+    }
+
+    const currentUsers = msg.reactions[emoji] || [];
+    const index = currentUsers.indexOf(userId);
+
+    if (index > -1) {
+      currentUsers.splice(index, 1);
+      if (currentUsers.length === 0) {
+        delete msg.reactions[emoji];
+      } else {
+        msg.reactions[emoji] = currentUsers;
+      }
+    } else {
+      msg.reactions[emoji] = [...currentUsers, userId];
+    }
+
+    this.save();
+    return msg.reactions;
+  }
+
   deleteMessage(
     messageId: string,
     requestedByUserId: string,

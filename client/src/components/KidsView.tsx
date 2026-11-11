@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Play, Pause, Smile, Sparkles, Send, Trash2, Edit3, Eraser, Image as ImageIcon, Lock, Camera, Settings } from 'lucide-react';
+import { ArrowLeft, Play, Pause, Smile, Sparkles, Send, Trash2, Edit3, Eraser, Image as ImageIcon, Lock, Camera, Settings, CornerUpLeft, ArrowDown, X } from 'lucide-react';
 import { AudioRecorder } from './AudioRecorder';
 import { PhotoSender } from './PhotoSender';
 import { DeleteOptionsModal } from './DeleteOptionsModal';
@@ -15,9 +15,10 @@ interface KidsViewProps {
   onSelectContact: (contact: any) => void;
   onBackToContacts: () => void;
   messages: any[];
-  onSendMessage: (text: string) => void;
-  onSendAudio: (blob: Blob, duration: number) => void;
-  onSendPhoto: (blob: Blob, isProtected?: boolean) => void;
+  allMessages?: any[];
+  onSendMessage: (text: string, replyTo?: any) => void;
+  onSendAudio: (blob: Blob, duration: number, replyTo?: any) => void;
+  onSendPhoto: (blob: Blob, isProtected?: boolean, replyTo?: any) => void;
   onDeleteMessage: (msgId: string, mode: 'for_me' | 'for_everyone') => void;
   onEditMessage: (msgId: string, newText: string) => void;
   onClearChat: (contactId: string, mode: 'for_me' | 'for_everyone') => void;
@@ -28,6 +29,7 @@ interface KidsViewProps {
   onUnlockProtectedPhoto?: (msgId: string) => void;
   onUserUpdated?: (user: any) => void;
   onlineUsers?: Set<string>;
+  onToggleReaction?: (messageId: string, emoji: string) => void;
 }
 
 export const KidsView: React.FC<KidsViewProps> = ({
@@ -37,6 +39,7 @@ export const KidsView: React.FC<KidsViewProps> = ({
   onSelectContact,
   onBackToContacts,
   messages,
+  allMessages,
   onSendMessage,
   onSendAudio,
   onSendPhoto,
@@ -49,7 +52,8 @@ export const KidsView: React.FC<KidsViewProps> = ({
   unlockedProtectedPhotos,
   onUnlockProtectedPhoto,
   onUserUpdated,
-  onlineUsers = new Set()
+  onlineUsers = new Set(),
+  onToggleReaction
 }) => {
   const [inputText, setInputText] = useState('');
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
@@ -58,12 +62,50 @@ export const KidsView: React.FC<KidsViewProps> = ({
   const [showClearModal, setShowClearModal] = useState(false);
   const [showAvatarModal, setShowAvatarModal] = useState(false);
   const [fullscreenMedia, setFullscreenMedia] = useState<{ url: string; title: string; subtitle?: string } | null>(null);
+  const [replyingTo, setReplyingTo] = useState<any | null>(null);
+  const [activeReactionMenuMsgId, setActiveReactionMenuMsgId] = useState<string | null>(null);
+  const [showScrollBottomPill, setShowScrollBottomPill] = useState(false);
+
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
+  const prevMessagesCountRef = useRef(messages.length);
+  const activeContactIdRef = useRef<string | null>(activeContact?.id || null);
+
+  const handleScroll = () => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const near = distFromBottom < 120;
+    isNearBottomRef.current = near;
+    if (near) {
+      setShowScrollBottomPill(false);
+    }
+  };
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    if (activeContact?.id !== activeContactIdRef.current) {
+      activeContactIdRef.current = activeContact?.id || null;
+      prevMessagesCountRef.current = messages.length;
+      isNearBottomRef.current = true;
+      setShowScrollBottomPill(false);
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+      }, 50);
+      return;
+    }
+
+    if (messages.length > prevMessagesCountRef.current) {
+      if (isNearBottomRef.current) {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        setShowScrollBottomPill(false);
+      } else {
+        setShowScrollBottomPill(true);
+      }
+    }
+    prevMessagesCountRef.current = messages.length;
+  }, [messages, activeContact?.id]);
 
   const toggleAudio = (msgId: string, url: string) => {
     if (playingAudioId === msgId) {
@@ -90,11 +132,35 @@ export const KidsView: React.FC<KidsViewProps> = ({
     }
   };
 
+  const getReplySnapshot = () => {
+    if (!replyingTo) return undefined;
+    return {
+      id: replyingTo.id,
+      fromUsername: replyingTo.fromUserId === currentUser.id ? currentUser.username : (activeContact?.username || 'Usuario'),
+      previewText: replyingTo.type === 'image' ? '📷 Foto' : replyingTo.type === 'audio' ? '🎵 Nota de voz' : (replyingTo.decryptedText || '').slice(0, 100),
+      type: replyingTo.type
+    };
+  };
+
   const handleSendText = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim()) return;
-    onSendMessage(inputText);
+    const replySnapshot = getReplySnapshot();
+    onSendMessage(inputText, replySnapshot);
     setInputText('');
+    setReplyingTo(null);
+  };
+
+  const handleSendPhotoWrapper = (blob: Blob, isProtected?: boolean) => {
+    const replySnapshot = getReplySnapshot();
+    onSendPhoto(blob, isProtected, replySnapshot);
+    setReplyingTo(null);
+  };
+
+  const handleSendAudioWrapper = (blob: Blob, duration: number) => {
+    const replySnapshot = getReplySnapshot();
+    onSendAudio(blob, duration, replySnapshot);
+    setReplyingTo(null);
   };
 
   return (
@@ -220,7 +286,8 @@ export const KidsView: React.FC<KidsViewProps> = ({
                       </span>
                     )}
                     {(() => {
-                      const unread = messages.filter(
+                      const unreadSource = allMessages || messages;
+                      const unread = unreadSource.filter(
                         (m) => m && m.fromUserId === contact.id && m.toUserId === currentUser.id && m.status !== 'read'
                       ).length;
                       return unread > 0 ? (
@@ -253,9 +320,29 @@ export const KidsView: React.FC<KidsViewProps> = ({
           </div>
         ) : (
           /* Active Chat View */
-          <div className="flex-1 flex flex-col h-full bg-amber-50/50">
+          <div className="flex-1 flex flex-col h-full bg-amber-50/50 relative">
             {/* Messages Scroll Area */}
-            <div className="flex-1 min-h-0 p-4 overflow-y-auto space-y-4">
+            <div
+              ref={scrollContainerRef}
+              onScroll={handleScroll}
+              className="flex-1 min-h-0 p-4 overflow-y-auto space-y-4 relative"
+            >
+              {/* Floating New Messages Pill */}
+              {showScrollBottomPill && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+                    setShowScrollBottomPill(false);
+                    isNearBottomRef.current = true;
+                  }}
+                  className="sticky bottom-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-4 py-2 rounded-full bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs shadow-xl border-2 border-white transition-all animate-bounce"
+                >
+                  <ArrowDown className="w-4 h-4" />
+                  <span>Mensajes nuevos</span>
+                </button>
+              )}
+
               {messages.length === 0 && (
                 <div className="text-center py-12 text-amber-700 font-semibold text-sm">
                   🧸 Mándale un saludo, una foto o un audio a {activeContact.username}.
@@ -264,18 +351,48 @@ export const KidsView: React.FC<KidsViewProps> = ({
 
               {messages.map((msg) => {
                 const isMine = msg.fromUserId === currentUser.id;
+                const showReactionMenu = activeReactionMenuMsgId === msg.id;
+
                 return (
                   <div
                     key={msg.id}
+                    id={`msg-${msg.id}`}
                     className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}
                   >
                     <div
-                      className={`max-w-[85%] rounded-3xl p-4 shadow-md ${
+                      className={`max-w-[85%] rounded-3xl p-4 shadow-md relative transition-all ${
                         isMine
                           ? 'bg-amber-400 text-amber-950 rounded-br-none border-2 border-amber-500'
                           : 'bg-white text-stone-900 rounded-bl-none border-2 border-amber-200'
                       }`}
                     >
+                      {/* Quote / Reply Preview */}
+                      {msg.replyTo && (
+                        <div
+                          onClick={() => {
+                            const targetEl = document.getElementById(`msg-${msg.replyTo.id}`);
+                            if (targetEl) {
+                              targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                              targetEl.classList.add('ring-4', 'ring-amber-500');
+                              setTimeout(() => targetEl.classList.remove('ring-4', 'ring-amber-500'), 2000);
+                            }
+                          }}
+                          className={`mb-2 p-2.5 rounded-2xl text-xs cursor-pointer border-l-4 ${
+                            isMine
+                              ? 'bg-amber-500/50 border-amber-800 text-amber-950'
+                              : 'bg-amber-100 border-amber-400 text-amber-950'
+                          }`}
+                          title="Toca para ir al mensaje original"
+                        >
+                          <div className="font-black text-[11px] text-amber-900">
+                            {msg.replyTo.fromUsername || 'Mensaje citado'}
+                          </div>
+                          <div className="truncate text-xs font-medium">
+                            {msg.replyTo.previewText || '...'}
+                          </div>
+                        </div>
+                      )}
+
                       {/* Text */}
                       {msg.type === 'text' && (
                         <p className="text-lg font-bold leading-relaxed">{msg.decryptedText}</p>
@@ -336,6 +453,50 @@ export const KidsView: React.FC<KidsViewProps> = ({
                         </div>
                       )}
 
+                      {/* Quick Emoji Reaction Selector Bar */}
+                      {showReactionMenu && (
+                        <div className="absolute -top-11 left-0 bg-white border-2 border-amber-300 rounded-full px-2 py-1 shadow-xl flex items-center gap-1.5 z-30">
+                          {['❤️', '👍', '😂', '😮', '😢', '🙏'].map((emoji) => (
+                            <button
+                              key={emoji}
+                              type="button"
+                              onClick={() => {
+                                onToggleReaction && onToggleReaction(msg.id, emoji);
+                                setActiveReactionMenuMsgId(null);
+                              }}
+                              className="hover:scale-125 transition-transform p-1 text-lg leading-none active:scale-95"
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Reactions Pill Display */}
+                      {msg.reactions && Object.keys(msg.reactions).length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-2 pt-1 border-t border-amber-300/40">
+                          {Object.entries(msg.reactions as Record<string, string[]>).map(([emoji, userIds]) => {
+                            if (!userIds || userIds.length === 0) return null;
+                            const hasReacted = userIds.includes(currentUser.id);
+                            return (
+                              <button
+                                key={emoji}
+                                type="button"
+                                onClick={() => onToggleReaction && onToggleReaction(msg.id, emoji)}
+                                className={`px-2 py-0.5 rounded-full text-xs font-black flex items-center gap-1 border transition-all ${
+                                  hasReacted
+                                    ? 'bg-amber-300 border-amber-600 text-amber-950 scale-105 shadow-sm'
+                                    : 'bg-white/80 border-amber-300 text-amber-900'
+                                }`}
+                              >
+                                <span>{emoji}</span>
+                                <span className="text-[10px]">{userIds.length}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+
                       <div className="flex items-center justify-end gap-1.5 mt-1 text-[11px] font-bold opacity-75">
                         {msg.isEdited && <span className="text-amber-800 italic text-[9px]">(editado)</span>}
                         <span>
@@ -352,6 +513,27 @@ export const KidsView: React.FC<KidsViewProps> = ({
                             )}
                           </span>
                         )}
+
+                        {/* React Button */}
+                        <button
+                          type="button"
+                          onClick={() => setActiveReactionMenuMsgId(showReactionMenu ? null : msg.id)}
+                          className="p-1 hover:text-amber-900 transition-colors"
+                          title="Reaccionar con emoji"
+                        >
+                          <Smile className="w-3.5 h-3.5" />
+                        </button>
+
+                        {/* Reply Button */}
+                        <button
+                          type="button"
+                          onClick={() => setReplyingTo(msg)}
+                          className="p-1 hover:text-amber-900 transition-colors"
+                          title="Responder a este mensaje"
+                        >
+                          <CornerUpLeft className="w-3.5 h-3.5" />
+                        </button>
+
                         {isMine && msg.type === 'text' && (
                           <button
                             type="button"
@@ -380,9 +562,28 @@ export const KidsView: React.FC<KidsViewProps> = ({
 
             {/* Bottom Giant Action Bar (Mobile Responsive) */}
             <div className="flex-shrink-0 p-2 sm:p-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] bg-amber-200/90 border-t-2 sm:border-t-3 border-amber-300 backdrop-blur z-10">
+              {/* Replying Banner */}
+              {replyingTo && (
+                <div className="flex items-center justify-between px-3 py-1.5 mb-2 bg-amber-100 border-2 border-amber-400 rounded-2xl text-xs max-w-3xl mx-auto shadow-sm">
+                  <div className="flex items-center gap-2 overflow-hidden font-bold text-amber-950">
+                    <CornerUpLeft className="w-4 h-4 text-amber-700 flex-shrink-0" />
+                    <span className="truncate">
+                      Respondiendo: {replyingTo.type === 'image' ? '📷 Foto' : replyingTo.type === 'audio' ? '🎵 Nota de voz' : replyingTo.decryptedText}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setReplyingTo(null)}
+                    className="p-1 hover:bg-amber-200 rounded-full text-amber-800"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
               <form onSubmit={handleSendText} className="flex items-center gap-1.5 sm:gap-2.5 max-w-3xl mx-auto w-full">
-                <PhotoSender onSendPhoto={onSendPhoto} theme="kid" isRecipientMinor={true} />
-                <AudioRecorder onSendAudio={onSendAudio} theme="kid" />
+                <PhotoSender onSendPhoto={handleSendPhotoWrapper} theme="kid" isRecipientMinor={true} />
+                <AudioRecorder onSendAudio={handleSendAudioWrapper} theme="kid" />
 
                 <input
                   type="text"

@@ -71,10 +71,17 @@ export interface EncryptedMessagePacket {
   isEdited?: boolean;
   editedAt?: number;
   isProtected?: boolean; // When true, photo requires guardian PIN to reveal in chat/vault
+  replyTo?: {
+    id: string;
+    fromUserName: string;
+    textPreview: string;
+    type?: 'text' | 'image' | 'audio';
+  };
+  reactions?: Record<string, string[]>; // { emoji: [userId1, userId2] }
 }
 
 export interface WSClientMessage {
-  type: 'auth' | 'send_message' | 'ack' | 'typing' | 'delete_message' | 'edit_message' | 'clear_chat' | 'presence_state';
+  type: 'auth' | 'send_message' | 'ack' | 'typing' | 'delete_message' | 'edit_message' | 'clear_chat' | 'presence_state' | 'reaction';
   token?: string;
   userId?: string;
   publicKey?: string;
@@ -86,4 +93,5 @@ export interface WSClientMessage {
   contactId?: string;
   guardianAuthorized?: boolean;
   isOnline?: boolean;
+  emoji?: string;
 }

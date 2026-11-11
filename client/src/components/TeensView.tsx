@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Send, ShieldCheck, Play, Pause, Trash2, Edit3, Eraser, Image as ImageIcon, Lock, Camera, Settings } from 'lucide-react';
+import { ArrowLeft, Send, ShieldCheck, Play, Pause, Trash2, Edit3, Eraser, Image as ImageIcon, Lock, Camera, Settings, CornerUpLeft, ArrowDown, Smile, X } from 'lucide-react';
 import { AudioRecorder } from './AudioRecorder';
 import { PhotoSender } from './PhotoSender';
 import { DeleteOptionsModal } from './DeleteOptionsModal';
@@ -14,9 +14,10 @@ interface TeensViewProps {
   onSelectContact: (contact: any) => void;
   onBackToContacts: () => void;
   messages: any[];
-  onSendMessage: (text: string) => void;
-  onSendAudio: (blob: Blob, duration: number) => void;
-  onSendPhoto: (blob: Blob, isProtected?: boolean) => void;
+  allMessages?: any[];
+  onSendMessage: (text: string, replyTo?: any) => void;
+  onSendAudio: (blob: Blob, duration: number, replyTo?: any) => void;
+  onSendPhoto: (blob: Blob, isProtected?: boolean, replyTo?: any) => void;
   onDeleteMessage: (msgId: string, mode: 'for_me' | 'for_everyone') => void;
   onEditMessage: (msgId: string, newText: string) => void;
   onClearChat: (contactId: string, mode: 'for_me' | 'for_everyone') => void;
@@ -27,6 +28,7 @@ interface TeensViewProps {
   onUnlockProtectedPhoto?: (msgId: string) => void;
   onUserUpdated?: (user: any) => void;
   onlineUsers?: Set<string>;
+  onToggleReaction?: (messageId: string, emoji: string) => void;
 }
 
 export const TeensView: React.FC<TeensViewProps> = ({
@@ -36,6 +38,7 @@ export const TeensView: React.FC<TeensViewProps> = ({
   onSelectContact,
   onBackToContacts,
   messages,
+  allMessages,
   onSendMessage,
   onSendAudio,
   onSendPhoto,
@@ -48,7 +51,8 @@ export const TeensView: React.FC<TeensViewProps> = ({
   unlockedProtectedPhotos,
   onUnlockProtectedPhoto,
   onUserUpdated,
-  onlineUsers = new Set()
+  onlineUsers = new Set(),
+  onToggleReaction
 }) => {
   const [inputText, setInputText] = useState('');
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
@@ -56,12 +60,50 @@ export const TeensView: React.FC<TeensViewProps> = ({
   const [editTargetMsg, setEditTargetMsg] = useState<any | null>(null);
   const [showClearModal, setShowClearModal] = useState(false);
   const [showAvatarModal, setShowAvatarModal] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<any | null>(null);
+  const [activeReactionMenuMsgId, setActiveReactionMenuMsgId] = useState<string | null>(null);
+  const [showScrollBottomPill, setShowScrollBottomPill] = useState(false);
+
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
+  const prevMessagesCountRef = useRef(messages.length);
+  const activeContactIdRef = useRef<string | null>(activeContact?.id || null);
+
+  const handleScroll = () => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const near = distFromBottom < 120;
+    isNearBottomRef.current = near;
+    if (near) {
+      setShowScrollBottomPill(false);
+    }
+  };
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    if (activeContact?.id !== activeContactIdRef.current) {
+      activeContactIdRef.current = activeContact?.id || null;
+      prevMessagesCountRef.current = messages.length;
+      isNearBottomRef.current = true;
+      setShowScrollBottomPill(false);
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+      }, 50);
+      return;
+    }
+
+    if (messages.length > prevMessagesCountRef.current) {
+      if (isNearBottomRef.current) {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        setShowScrollBottomPill(false);
+      } else {
+        setShowScrollBottomPill(true);
+      }
+    }
+    prevMessagesCountRef.current = messages.length;
+  }, [messages, activeContact?.id]);
 
   const toggleAudio = (msgId: string, url: string) => {
     if (playingAudioId === msgId) {
@@ -77,11 +119,35 @@ export const TeensView: React.FC<TeensViewProps> = ({
     }
   };
 
+  const getReplySnapshot = () => {
+    if (!replyingTo) return undefined;
+    return {
+      id: replyingTo.id,
+      fromUsername: replyingTo.fromUserId === currentUser.id ? currentUser.username : (activeContact?.username || 'Usuario'),
+      previewText: replyingTo.type === 'image' ? '📷 Foto' : replyingTo.type === 'audio' ? '🎵 Nota de voz' : (replyingTo.decryptedText || '').slice(0, 100),
+      type: replyingTo.type
+    };
+  };
+
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim()) return;
-    onSendMessage(inputText);
+    const replySnapshot = getReplySnapshot();
+    onSendMessage(inputText, replySnapshot);
     setInputText('');
+    setReplyingTo(null);
+  };
+
+  const handleSendPhotoWrapper = (blob: Blob, isProtected?: boolean) => {
+    const replySnapshot = getReplySnapshot();
+    onSendPhoto(blob, isProtected, replySnapshot);
+    setReplyingTo(null);
+  };
+
+  const handleSendAudioWrapper = (blob: Blob, duration: number) => {
+    const replySnapshot = getReplySnapshot();
+    onSendAudio(blob, duration, replySnapshot);
+    setReplyingTo(null);
   };
 
   return (
@@ -165,7 +231,20 @@ export const TeensView: React.FC<TeensViewProps> = ({
                       </span>
                     )}
                   </div>
-                  <div className="text-xs text-slate-500 truncate">Canal seguro verificado</div>
+                  <div className="text-xs text-slate-500 truncate flex items-center justify-between">
+                    <span>Canal seguro verificado</span>
+                    {(() => {
+                      const unreadSource = allMessages || messages;
+                      const unread = unreadSource.filter(
+                        (m) => m && m.fromUserId === contact.id && m.toUserId === currentUser.id && m.status !== 'read'
+                      ).length;
+                      return unread > 0 ? (
+                        <span className="px-2 py-0.5 rounded-full bg-cyan-600 text-white text-[10px] font-bold shadow-md animate-pulse">
+                          {unread}
+                        </span>
+                      ) : null;
+                    })()}
+                  </div>
                 </div>
               </button>
             ))
@@ -227,13 +306,38 @@ export const TeensView: React.FC<TeensViewProps> = ({
             </div>
 
             {/* Messages */}
-            <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
+            <div
+              ref={scrollContainerRef}
+              onScroll={handleScroll}
+              className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3 relative"
+            >
+              {/* Floating New Messages Pill */}
+              {showScrollBottomPill && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+                    setShowScrollBottomPill(false);
+                    isNearBottomRef.current = true;
+                  }}
+                  className="sticky bottom-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold shadow-xl border border-cyan-400/40 transition-all animate-bounce"
+                >
+                  <ArrowDown className="w-3.5 h-3.5" />
+                  <span>Mensajes nuevos</span>
+                </button>
+              )}
+
               {messages.map((msg) => {
                 const isMine = msg.fromUserId === currentUser.id;
                 const isPhotoProtected = msg.isProtected && !(unlockedProtectedPhotos || []).includes(msg.id);
+                const showReactionMenu = activeReactionMenuMsgId === msg.id;
 
                 return (
-                  <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'} group`}>
+                  <div
+                    key={msg.id}
+                    id={`msg-${msg.id}`}
+                    className={`flex ${isMine ? 'justify-end' : 'justify-start'} group`}
+                  >
                     <div
                       className={`max-w-[75%] rounded-2xl p-3.5 shadow-lg relative ${
                         isMine
@@ -241,6 +345,33 @@ export const TeensView: React.FC<TeensViewProps> = ({
                           : 'bg-slate-800/90 text-slate-100 rounded-bl-xs border border-slate-700/60'
                       }`}
                     >
+                      {/* Quote / Reply Preview */}
+                      {msg.replyTo && (
+                        <div
+                          onClick={() => {
+                            const targetEl = document.getElementById(`msg-${msg.replyTo.id}`);
+                            if (targetEl) {
+                              targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                              targetEl.classList.add('ring-2', 'ring-cyan-400');
+                              setTimeout(() => targetEl.classList.remove('ring-2', 'ring-cyan-400'), 2000);
+                            }
+                          }}
+                          className={`mb-2 p-2 rounded-lg text-xs cursor-pointer border-l-4 ${
+                            isMine
+                              ? 'bg-cyan-700/60 border-cyan-300 text-cyan-100'
+                              : 'bg-slate-900 border-cyan-400 text-slate-300'
+                          }`}
+                          title="Toca para ir al mensaje original"
+                        >
+                          <div className="font-semibold text-[11px] text-cyan-200">
+                            {msg.replyTo.fromUsername || 'Mensaje citado'}
+                          </div>
+                          <div className="truncate text-[11px] opacity-80">
+                            {msg.replyTo.previewText || '...'}
+                          </div>
+                        </div>
+                      )}
+
                       {msg.type === 'text' && <p className="text-sm leading-relaxed">{msg.decryptedText}</p>}
 
                       {msg.type === 'image' && (
@@ -283,10 +414,75 @@ export const TeensView: React.FC<TeensViewProps> = ({
                         </div>
                       )}
 
-                      <div className="flex items-center justify-end gap-2 mt-1.5 text-[10px] text-slate-300/80">
+                      {/* Quick Emoji Reaction Selector Bar */}
+                      {showReactionMenu && (
+                        <div className="absolute -top-10 left-0 bg-slate-900 border border-cyan-500/50 rounded-full px-2 py-1 shadow-2xl flex items-center gap-1.5 z-30">
+                          {['❤️', '👍', '😂', '😮', '😢', '🙏'].map((emoji) => (
+                            <button
+                              key={emoji}
+                              type="button"
+                              onClick={() => {
+                                onToggleReaction && onToggleReaction(msg.id, emoji);
+                                setActiveReactionMenuMsgId(null);
+                              }}
+                              className="hover:scale-125 transition-transform p-1 text-base leading-none active:scale-95"
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Reactions Pill Display */}
+                      {msg.reactions && Object.keys(msg.reactions).length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1.5 pt-1 border-t border-white/10">
+                          {Object.entries(msg.reactions as Record<string, string[]>).map(([emoji, userIds]) => {
+                            if (!userIds || userIds.length === 0) return null;
+                            const hasReacted = userIds.includes(currentUser.id);
+                            return (
+                              <button
+                                key={emoji}
+                                type="button"
+                                onClick={() => onToggleReaction && onToggleReaction(msg.id, emoji)}
+                                className={`px-2 py-0.5 rounded-full text-xs flex items-center gap-1 border transition-all ${
+                                  hasReacted
+                                    ? 'bg-cyan-500/30 border-cyan-400 text-white font-bold ring-1 ring-cyan-400/50'
+                                    : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
+                                }`}
+                              >
+                                <span>{emoji}</span>
+                                <span className="text-[10px]">{userIds.length}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-end gap-1.5 mt-1.5 text-[10px] text-slate-300/80">
                         {msg.isEdited && <span className="text-cyan-200 italic text-[9px]">(editado)</span>}
                         <span>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                         {isMine && <span className="text-cyan-200">✓✓</span>}
+
+                        {/* React Button */}
+                        <button
+                          type="button"
+                          onClick={() => setActiveReactionMenuMsgId(showReactionMenu ? null : msg.id)}
+                          className="opacity-0 group-hover:opacity-100 hover:text-cyan-300 transition-opacity p-0.5"
+                          title="Reaccionar con emoji"
+                        >
+                          <Smile className="w-3.5 h-3.5" />
+                        </button>
+
+                        {/* Reply Button */}
+                        <button
+                          type="button"
+                          onClick={() => setReplyingTo(msg)}
+                          className="opacity-0 group-hover:opacity-100 hover:text-cyan-300 transition-opacity p-0.5"
+                          title="Responder a este mensaje"
+                        >
+                          <CornerUpLeft className="w-3.5 h-3.5" />
+                        </button>
+
                         {isMine && msg.type === 'text' && (
                           <button
                             type="button"
@@ -314,9 +510,28 @@ export const TeensView: React.FC<TeensViewProps> = ({
 
             {/* Input Bar */}
             <div className="p-3 border-t border-slate-800 bg-slate-900/40 flex-shrink-0">
+              {/* Replying Banner */}
+              {replyingTo && (
+                <div className="flex items-center justify-between px-3 py-1.5 mb-2 bg-slate-800/90 border border-cyan-500/40 rounded-xl text-xs max-w-4xl mx-auto shadow-md">
+                  <div className="flex items-center gap-2 overflow-hidden">
+                    <CornerUpLeft className="w-4 h-4 text-cyan-400 flex-shrink-0" />
+                    <span className="truncate text-cyan-200">
+                      Respondiendo: {replyingTo.type === 'image' ? '📷 Foto' : replyingTo.type === 'audio' ? '🎵 Nota de voz' : replyingTo.decryptedText}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setReplyingTo(null)}
+                    className="p-1 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-white"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
               <form onSubmit={handleSend} className="flex items-center gap-2 max-w-4xl mx-auto">
-                <PhotoSender onSendPhoto={onSendPhoto} theme="teen" />
-                <AudioRecorder onSendAudio={onSendAudio} theme="teen" />
+                <PhotoSender onSendPhoto={handleSendPhotoWrapper} theme="teen" />
+                <AudioRecorder onSendAudio={handleSendAudioWrapper} theme="teen" />
 
                 <input
                   type="text"

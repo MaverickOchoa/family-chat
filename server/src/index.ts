@@ -893,6 +893,20 @@ wss.on('connection', (ws) => {
           }
           break;
         }
+
+        case 'reaction': {
+          if (msg.messageId && msg.emoji && authenticatedUserId) {
+            const reactions = db.toggleReaction(msg.messageId, msg.emoji, authenticatedUserId);
+            if (reactions) {
+              broadcastToAll({
+                type: 'reaction_update',
+                messageId: msg.messageId,
+                reactions
+              });
+            }
+          }
+          break;
+        }
       }
     } catch (e) {
       console.error('WS Error:', e);

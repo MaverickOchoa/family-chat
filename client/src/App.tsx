@@ -184,6 +184,10 @@ export function App() {
           setMessages((prev) =>
             prev.map((m) => (m.id === data.messageId ? { ...m, status: data.status } : m))
           );
+        } else if (data.type === 'reaction_update') {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === data.messageId ? { ...m, reactions: data.reactions } : m))
+          );
         } else if (data.type === 'initial_presence') {
           if (Array.isArray(data.onlineUserIds)) {
             setOnlineUsers(new Set(data.onlineUserIds));
@@ -566,7 +570,59 @@ export function App() {
         })
       );
 
-      setMessages(decryptedList);
+      setMessages((prev) => {
+        // Detect brand new incoming unread messages while app was asleep or reconnecting
+        if (prev.length > 0) {
+          const prevIds = new Set(prev.map((m) => m.id));
+          const newUnseenIncoming = decryptedList.filter(
+            (m) =>
+              !prevIds.has(m.id) &&
+              m.fromUserId !== currentUser.id &&
+              m.toUserId === currentUser.id &&
+              m.status !== 'read'
+          );
+
+          if (newUnseenIncoming.length > 0) {
+            playNotificationSoundAndVibrate();
+            for (const newMsg of newUnseenIncoming) {
+              const sender = contacts.find((c) => c.id === newMsg.fromUserId);
+              const senderName = sender?.username || 'Familiar';
+              const preview =
+                newMsg.type === 'text'
+                  ? newMsg.decryptedText || 'Nuevo mensaje'
+                  : newMsg.type === 'image'
+                  ? '📸 Foto recibida'
+                  : '🎤 Nota de voz recibida';
+
+              triggerDeviceNotification(`💬 ${senderName}`, {
+                body: preview,
+                icon: sender?.avatar || '/favicon.svg',
+                tag: `family_chat_${newMsg.fromUserId}`,
+                data: { contactId: newMsg.fromUserId }
+              });
+            }
+          }
+        }
+
+        // Avoid replacing array if message IDs, statuses and reactions didn't change (prevents re-render cascades)
+        if (prev.length === decryptedList.length) {
+          let hasDiff = false;
+          for (let i = 0; i < prev.length; i++) {
+            if (
+              prev[i].id !== decryptedList[i].id ||
+              prev[i].status !== decryptedList[i].status ||
+              JSON.stringify(prev[i].reactions) !== JSON.stringify(decryptedList[i].reactions) ||
+              prev[i].isEdited !== decryptedList[i].isEdited
+            ) {
+              hasDiff = true;
+              break;
+            }
+          }
+          if (!hasDiff) return prev;
+        }
+
+        return decryptedList;
+      });
     } catch (e) {
       console.error('Error syncing message history:', e);
     }
@@ -574,7 +630,7 @@ export function App() {
 
   // --- ACTIONS ---
 
-  const handleSendMessage = async (text: string) => {
+  const handleSendMessage = async (text: string, replyTo?: any) => {
     if (!activeContact || !userKeyPair || !currentUser) return;
 
     try {
@@ -631,7 +687,8 @@ export function App() {
         iv: encrypted.iv,
         type: 'text' as const,
         timestamp: Date.now(),
-        status: 'sent' as const
+        status: 'sent' as const,
+        replyTo: replyTo || undefined
       };
 
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -663,7 +720,7 @@ export function App() {
     }
   };
 
-  const handleSendAudio = async (audioBlob: Blob, duration: number) => {
+  const handleSendAudio = async (audioBlob: Blob, duration: number, replyTo?: any) => {
     if (!activeContact || !userKeyPair || !currentUser) return;
 
     try {
@@ -722,7 +779,8 @@ export function App() {
         mediaMimeType: audioBlob.type || 'audio/webm',
         mediaDuration: duration,
         timestamp: Date.now(),
-        status: 'sent' as const
+        status: 'sent' as const,
+        replyTo: replyTo || undefined
       };
 
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -754,7 +812,7 @@ export function App() {
     }
   };
 
-  const handleSendPhoto = async (photoBlob: Blob, isProtected: boolean = false) => {
+  const handleSendPhoto = async (photoBlob: Blob, isProtected: boolean = false, replyTo?: any) => {
     if (!activeContact || !userKeyPair || !currentUser) return;
 
     try {
@@ -812,7 +870,8 @@ export function App() {
         mediaUrl: uploadData.mediaUrl,
         timestamp: Date.now(),
         status: 'sent' as const,
-        isProtected: !!isProtected
+        isProtected: !!isProtected,
+        replyTo: replyTo || undefined
       };
 
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -842,6 +901,41 @@ export function App() {
     } catch (err: any) {
       console.error('Error sending photo:', err);
       alert(`Error enviando foto: ${err.message || err}`);
+    }
+  };
+
+  const handleToggleReaction = (messageId: string, emoji: string) => {
+    if (!currentUser) return;
+
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id !== messageId) return m;
+        const currentReactions: Record<string, string[]> = { ...(m.reactions || {}) };
+        const users = [...(currentReactions[emoji] || [])];
+        const idx = users.indexOf(currentUser.id);
+        if (idx > -1) {
+          users.splice(idx, 1);
+          if (users.length === 0) {
+            delete currentReactions[emoji];
+          } else {
+            currentReactions[emoji] = users;
+          }
+        } else {
+          currentReactions[emoji] = [...users, currentUser.id];
+        }
+        return { ...m, reactions: currentReactions };
+      })
+    );
+
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'reaction',
+          messageId,
+          emoji,
+          userId: currentUser.id
+        })
+      );
     }
   };
 
@@ -1468,6 +1562,8 @@ export function App() {
           onUnlockProtectedPhoto={handleUnlockProtectedPhoto}
           onUserUpdated={handleUserUpdated}
           onlineUsers={onlineUsers}
+          allMessages={messages}
+          onToggleReaction={handleToggleReaction}
         />
         <ParentPinModal
           isOpen={showPinModal}
@@ -1525,6 +1621,8 @@ export function App() {
           onUnlockProtectedPhoto={handleUnlockProtectedPhoto}
           onUserUpdated={handleUserUpdated}
           onlineUsers={onlineUsers}
+          allMessages={messages}
+          onToggleReaction={handleToggleReaction}
         />
 
         <ParentPinModal
@@ -1581,6 +1679,8 @@ export function App() {
         onUserUpdated={handleUserUpdated}
         onRefreshContacts={fetchContacts}
         onlineUsers={onlineUsers}
+        allMessages={messages}
+        onToggleReaction={handleToggleReaction}
       />
 
       <InviteModal

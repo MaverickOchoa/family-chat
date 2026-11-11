@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Send, Shield, UserPlus, Eye, Play, Pause, Trash2, Users, Edit3, Eraser, Image as ImageIcon, Lock, Sparkles, Camera, Settings, Handshake } from 'lucide-react';
+import { ArrowLeft, Send, Shield, UserPlus, Eye, Play, Pause, Trash2, Users, Edit3, Eraser, Image as ImageIcon, Lock, Sparkles, Camera, Settings, Handshake, CornerUpLeft, ArrowDown, Smile, X } from 'lucide-react';
 import { AudioRecorder } from './AudioRecorder';
 import { PhotoSender } from './PhotoSender';
 import { DeleteOptionsModal } from './DeleteOptionsModal';
@@ -18,11 +18,12 @@ interface AdultsViewProps {
   onSelectContact: (contact: any) => void;
   onBackToContacts: () => void;
   messages: any[];
+  allMessages?: any[];
   mirrorMessages: any[];
   childrenList: any[];
-  onSendMessage: (text: string) => void;
-  onSendAudio: (blob: Blob, duration: number) => void;
-  onSendPhoto: (blob: Blob, isProtected?: boolean) => void;
+  onSendMessage: (text: string, replyTo?: any) => void;
+  onSendAudio: (blob: Blob, duration: number, replyTo?: any) => void;
+  onSendPhoto: (blob: Blob, isProtected?: boolean, replyTo?: any) => void;
   onDeleteMessage: (msgId: string, mode: 'for_me' | 'for_everyone') => void;
   onEditMessage: (msgId: string, newText: string) => void;
   onClearChat: (contactId: string, mode: 'for_me' | 'for_everyone') => void;
@@ -37,6 +38,7 @@ interface AdultsViewProps {
   onRefreshContacts?: () => void;
   onUserUpdated?: (user: any) => void;
   onlineUsers?: Set<string>;
+  onToggleReaction?: (messageId: string, emoji: string) => void;
 }
 
 export const AdultsView: React.FC<AdultsViewProps> = ({
@@ -46,6 +48,7 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
   onSelectContact,
   onBackToContacts,
   messages,
+  allMessages,
   mirrorMessages,
   childrenList,
   onSendMessage,
@@ -64,7 +67,8 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
   onUnlockProtectedPhoto,
   onRefreshContacts,
   onUserUpdated,
-  onlineUsers = new Set()
+  onlineUsers = new Set(),
+  onToggleReaction
 }) => {
   const [activeTab, setActiveTab] = useState<'chats' | 'mirror'>('chats');
   const [selectedMirrorChild, setSelectedMirrorChild] = useState<any>(null);
@@ -80,12 +84,59 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
   const [showHandshakesModal, setShowHandshakesModal] = useState(false);
   const [fullscreenMedia, setFullscreenMedia] = useState<{ url: string; title: string; subtitle?: string } | null>(null);
   const [envFilter, setEnvFilter] = useState<'all' | 'family' | 'church' | 'work'>('all');
+  const [replyingTo, setReplyingTo] = useState<any | null>(null);
+  const [activeReactionMenuMsgId, setActiveReactionMenuMsgId] = useState<string | null>(null);
+  const [showScrollBottomPill, setShowScrollBottomPill] = useState(false);
+
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
+  const prevMessagesCountRef = useRef(messages.length);
+  const activeContactIdRef = useRef<string | null>(activeContact?.id || null);
+
+  const handleScroll = () => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const near = distFromBottom < 120;
+    isNearBottomRef.current = near;
+    if (near) {
+      setShowScrollBottomPill(false);
+    }
+  };
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, mirrorMessages]);
+    // When switching contacts, always jump to the bottom
+    if (activeContact?.id !== activeContactIdRef.current) {
+      activeContactIdRef.current = activeContact?.id || null;
+      prevMessagesCountRef.current = messages.length;
+      isNearBottomRef.current = true;
+      setShowScrollBottomPill(false);
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+      }, 50);
+      return;
+    }
+
+    // When new messages arrive
+    if (messages.length > prevMessagesCountRef.current) {
+      if (isNearBottomRef.current) {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        setShowScrollBottomPill(false);
+      } else {
+        // User was scrolling up reading old history: do NOT disrupt them!
+        setShowScrollBottomPill(true);
+      }
+    }
+    prevMessagesCountRef.current = messages.length;
+  }, [messages, activeContact?.id]);
+
+  useEffect(() => {
+    if (activeTab === 'mirror') {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [mirrorMessages, activeTab]);
 
   const toggleAudio = (msgId: string, url: string) => {
     if (playingAudioId === msgId) {
@@ -110,11 +161,35 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
     }
   };
 
+  const getReplySnapshot = () => {
+    if (!replyingTo) return undefined;
+    return {
+      id: replyingTo.id,
+      fromUsername: replyingTo.fromUserId === currentUser.id ? currentUser.username : (activeContact?.username || 'Usuario'),
+      previewText: replyingTo.type === 'image' ? '📷 Foto' : replyingTo.type === 'audio' ? '🎵 Nota de voz' : (replyingTo.decryptedText || '').slice(0, 100),
+      type: replyingTo.type
+    };
+  };
+
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim()) return;
-    onSendMessage(inputText);
+    const replySnapshot = getReplySnapshot();
+    onSendMessage(inputText, replySnapshot);
     setInputText('');
+    setReplyingTo(null);
+  };
+
+  const handleSendPhotoWrapper = (blob: Blob, isProtected?: boolean) => {
+    const replySnapshot = getReplySnapshot();
+    onSendPhoto(blob, isProtected, replySnapshot);
+    setReplyingTo(null);
+  };
+
+  const handleSendAudioWrapper = (blob: Blob, duration: number) => {
+    const replySnapshot = getReplySnapshot();
+    onSendAudio(blob, duration, replySnapshot);
+    setReplyingTo(null);
   };
 
   const kidsUnder10 = childrenList.filter(c => c.age && c.age < 10);
@@ -377,7 +452,8 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
                         )}
 
                         {(() => {
-                          const unreadCount = messages.filter(
+                          const unreadSource = allMessages || messages;
+                          const unreadCount = unreadSource.filter(
                             (m) => m && m.fromUserId === contact.id && m.toUserId === currentUser.id && m.status !== 'read'
                           ).length;
                           return unreadCount > 0 ? (
@@ -625,7 +701,27 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
             </header>
 
             {/* Messages Container */}
-            <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 space-y-3 bg-slate-950">
+            <div
+              ref={scrollContainerRef}
+              onScroll={handleScroll}
+              className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 space-y-3 bg-slate-950 relative"
+            >
+              {/* Floating New Messages Pill */}
+              {showScrollBottomPill && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+                    setShowScrollBottomPill(false);
+                    isNearBottomRef.current = true;
+                  }}
+                  className="sticky bottom-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-xl border border-indigo-400/40 transition-all animate-bounce"
+                >
+                  <ArrowDown className="w-3.5 h-3.5" />
+                  <span>Mensajes nuevos</span>
+                </button>
+              )}
+
               <div className="w-full max-w-4xl mx-auto space-y-3">
                 {messages.length === 0 ? (
                   <div className="text-center py-16 text-slate-500 text-xs">
@@ -635,9 +731,14 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
                   messages.map((msg) => {
                     const isMine = msg.fromUserId === currentUser.id;
                     const isPhotoProtected = msg.isProtected && !(unlockedProtectedPhotos || []).includes(msg.id);
+                    const showReactionMenu = activeReactionMenuMsgId === msg.id;
 
                     return (
-                      <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'} group`}>
+                      <div
+                        key={msg.id}
+                        id={`msg-${msg.id}`}
+                        className={`flex ${isMine ? 'justify-end' : 'justify-start'} group transition-colors duration-300 rounded-2xl`}
+                      >
                         <div
                           className={`max-w-[85%] md:max-w-[70%] rounded-2xl p-3.5 shadow-md relative ${
                             isMine
@@ -645,6 +746,33 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
                               : 'bg-slate-900 text-slate-100 rounded-bl-none border border-slate-800'
                           }`}
                         >
+                          {/* Quote / Reply Preview */}
+                          {msg.replyTo && (
+                            <div
+                              onClick={() => {
+                                const targetEl = document.getElementById(`msg-${msg.replyTo.id}`);
+                                if (targetEl) {
+                                  targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                  targetEl.classList.add('ring-2', 'ring-indigo-400', 'bg-indigo-950/40');
+                                  setTimeout(() => targetEl.classList.remove('ring-2', 'ring-indigo-400', 'bg-indigo-950/40'), 2000);
+                                }
+                              }}
+                              className={`mb-2 p-2 rounded-lg text-xs cursor-pointer border-l-4 transition-colors ${
+                                isMine
+                                  ? 'bg-indigo-700/60 border-indigo-300 text-indigo-100 hover:bg-indigo-700'
+                                  : 'bg-slate-800 border-indigo-500 text-slate-300 hover:bg-slate-700/80'
+                              }`}
+                              title="Toca para ir al mensaje original"
+                            >
+                              <div className="font-semibold text-[11px] text-indigo-200">
+                                {msg.replyTo.fromUsername || 'Mensaje citado'}
+                              </div>
+                              <div className="truncate text-[11px] opacity-80">
+                                {msg.replyTo.previewText || '...'}
+                              </div>
+                            </div>
+                          )}
+
                           {msg.type === 'text' && <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.decryptedText}</p>}
 
                           {msg.type === 'image' && (
@@ -693,7 +821,52 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
                             </div>
                           )}
 
-                          <div className="flex items-center justify-end gap-2 mt-1 text-[10px] opacity-75">
+                          {/* Quick Emoji Reaction Selector Bar */}
+                          {showReactionMenu && (
+                            <div className="absolute -top-10 left-0 bg-slate-900/95 border border-slate-700 rounded-full px-2 py-1 shadow-2xl flex items-center gap-1.5 z-30 animate-in fade-in zoom-in-95">
+                              {['❤️', '👍', '😂', '😮', '😢', '🙏'].map((emoji) => (
+                                <button
+                                  key={emoji}
+                                  type="button"
+                                  onClick={() => {
+                                    onToggleReaction && onToggleReaction(msg.id, emoji);
+                                    setActiveReactionMenuMsgId(null);
+                                  }}
+                                  className="hover:scale-125 transition-transform p-1 text-base leading-none active:scale-95"
+                                >
+                                  {emoji}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Reactions Pill Display */}
+                          {msg.reactions && Object.keys(msg.reactions).length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1.5 pt-1 border-t border-white/10">
+                              {Object.entries(msg.reactions as Record<string, string[]>).map(([emoji, userIds]) => {
+                                if (!userIds || userIds.length === 0) return null;
+                                const hasReacted = userIds.includes(currentUser.id);
+                                return (
+                                  <button
+                                    key={emoji}
+                                    type="button"
+                                    onClick={() => onToggleReaction && onToggleReaction(msg.id, emoji)}
+                                    className={`px-2 py-0.5 rounded-full text-xs flex items-center gap-1 border transition-all ${
+                                      hasReacted
+                                        ? 'bg-indigo-500/30 border-indigo-400 text-white font-bold ring-1 ring-indigo-400/50'
+                                        : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-700'
+                                    }`}
+                                    title={hasReacted ? 'Quitar reacción' : 'Reaccionar'}
+                                  >
+                                    <span>{emoji}</span>
+                                    <span className="text-[10px] font-semibold">{userIds.length}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          <div className="flex items-center justify-end gap-1.5 mt-1 text-[10px] opacity-75">
                             {msg.isEdited && <span className="text-slate-400 italic text-[9px]">(editado)</span>}
                             <span>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                             {isMine && (
@@ -707,6 +880,27 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
                                 )}
                               </span>
                             )}
+
+                            {/* Action: React */}
+                            <button
+                              type="button"
+                              onClick={() => setActiveReactionMenuMsgId(showReactionMenu ? null : msg.id)}
+                              className="opacity-0 group-hover:opacity-100 hover:text-amber-400 transition-opacity p-0.5 ml-1"
+                              title="Reaccionar con emoji"
+                            >
+                              <Smile className="w-3.5 h-3.5" />
+                            </button>
+
+                            {/* Action: Reply / Quote */}
+                            <button
+                              type="button"
+                              onClick={() => setReplyingTo(msg)}
+                              className="opacity-0 group-hover:opacity-100 hover:text-indigo-300 transition-opacity p-0.5"
+                              title="Responder a este mensaje"
+                            >
+                              <CornerUpLeft className="w-3.5 h-3.5" />
+                            </button>
+
                             {isMine && msg.type === 'text' && (
                               <button
                                 type="button"
@@ -737,9 +931,33 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
 
             {/* Input Bar (Footer) */}
             <div className="p-3 border-t border-slate-800 bg-slate-900 flex-shrink-0 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+              {/* Replying Banner */}
+              {replyingTo && (
+                <div className="flex items-center justify-between px-3 py-2 mb-2 bg-slate-800/95 border border-indigo-500/40 rounded-xl text-xs max-w-4xl mx-auto shadow-md">
+                  <div className="flex items-center gap-2 overflow-hidden">
+                    <CornerUpLeft className="w-4 h-4 text-indigo-400 flex-shrink-0" />
+                    <div className="truncate">
+                      <span className="font-semibold text-indigo-300">
+                        Respondiendo a {replyingTo.fromUserId === currentUser.id ? 'ti mismo' : activeContact?.username}:
+                      </span>
+                      <span className="text-slate-400 ml-1 truncate">
+                        {replyingTo.type === 'image' ? '📷 Foto' : replyingTo.type === 'audio' ? '🎵 Nota de voz' : replyingTo.decryptedText}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setReplyingTo(null)}
+                    className="p-1 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-white transition-colors"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
               <form onSubmit={handleSend} className="flex items-center gap-2 max-w-4xl mx-auto">
                 <PhotoSender
-                  onSendPhoto={onSendPhoto}
+                  onSendPhoto={handleSendPhotoWrapper}
                   theme="adult"
                   isRecipientMinor={Boolean(activeContact && (
                     activeContact.role === 'kid' ||
@@ -747,7 +965,7 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
                     (activeContact.age !== undefined && activeContact.age < 18)
                   ))}
                 />
-                <AudioRecorder onSendAudio={onSendAudio} theme="adult" />
+                <AudioRecorder onSendAudio={handleSendAudioWrapper} theme="adult" />
 
                 <input
                   type="text"
