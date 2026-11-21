@@ -1,4 +1,5 @@
 import React, { useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Camera, Image as ImageIcon, X, Check, Lock, Sparkles, Send } from 'lucide-react';
 
 interface PhotoSenderProps {
@@ -118,9 +119,14 @@ export const PhotoSender: React.FC<PhotoSenderProps> = ({
         </button>
       )}
 
-      {/* Choice Modal: Camera vs Gallery */}
-      {showSourceModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 overflow-y-auto">
+      {/* Choice Modal: Camera vs Gallery (Portaled to document.body so it is never trapped by footer CSS) */}
+      {showSourceModal && typeof document !== 'undefined' && createPortal(
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowSourceModal(false);
+          }}
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 overflow-y-auto"
+        >
           <div
             className={`max-w-sm w-full rounded-3xl p-5 sm:p-6 shadow-2xl flex flex-col gap-3 my-auto animate-in fade-in zoom-in-95 duration-150 ${
               theme === 'kid'
@@ -181,12 +187,18 @@ export const PhotoSender: React.FC<PhotoSenderProps> = ({
               Cancelar
             </button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {/* Preview Modal before local encryption */}
-      {previewUrl && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto">
+      {/* Preview Modal before local encryption (Portaled to document.body) */}
+      {previewUrl && typeof document !== 'undefined' && createPortal(
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closePreview();
+          }}
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/85 backdrop-blur-md p-3 sm:p-4 overflow-y-auto"
+        >
           <div
             className={`max-w-md w-full max-h-[92dvh] rounded-3xl shadow-2xl flex flex-col p-4 sm:p-5 my-auto animate-in fade-in zoom-in-95 duration-150 ${
               theme === 'kid'
@@ -281,7 +293,8 @@ export const PhotoSender: React.FC<PhotoSenderProps> = ({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );
