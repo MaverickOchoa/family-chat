@@ -171,9 +171,20 @@ export const KidsView: React.FC<KidsViewProps> = ({
           {activeContact && (
             <button
               onClick={onBackToContacts}
-              className="p-1.5 sm:p-2 rounded-full bg-amber-100 hover:bg-amber-200 text-amber-900 shadow-sm"
+              className="p-1.5 sm:p-2 rounded-full bg-amber-100 hover:bg-amber-200 text-amber-900 shadow-sm flex items-center gap-1"
+              title="Volver a tus contactos"
             >
               <ArrowLeft className="w-5 h-5 sm:w-6 sm:h-6" />
+              {(() => {
+                const otherUnread = (allMessages || messages).filter(
+                  (m) => m && m.toUserId === currentUser.id && m.fromUserId !== activeContact.id && m.status !== 'read'
+                ).length;
+                return otherUnread > 0 ? (
+                  <span className="bg-red-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow animate-bounce">
+                    {otherUnread}
+                  </span>
+                ) : null;
+              })()}
             </button>
           )}
           <div className="flex items-center gap-2 sm:gap-3">
@@ -308,6 +319,19 @@ export const KidsView: React.FC<KidsViewProps> = ({
                           title="En línea en la app"
                         />
                       )}
+                      {(() => {
+                        const unreadCount = (allMessages || messages).filter(
+                          (m) => m && m.fromUserId === contact.id && m.toUserId === currentUser.id && m.status !== 'read'
+                        ).length;
+                        return unreadCount > 0 ? (
+                          <span
+                            className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-xs font-black rounded-full min-w-[26px] h-6 px-1.5 flex items-center justify-center border-2 border-white shadow-lg animate-bounce z-10"
+                            title={`${unreadCount} mensajes sin leer`}
+                          >
+                            {unreadCount}
+                          </span>
+                        ) : null;
+                      })()}
                     </div>
                     <span className="text-xl font-black text-amber-950 capitalize">{contact.username}</span>
                     <span className="text-xs font-bold text-amber-600 mt-1">

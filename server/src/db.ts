@@ -18,6 +18,7 @@ interface DatabaseSchema {
   invitations: Record<string, PairingInvitation>;
   messages: EncryptedMessagePacket[];
   handshakes: Record<string, GuardianHandshakeRequest>;
+  pushSubscriptions?: Record<string, any[]>;
 }
 
 class Database {
@@ -26,7 +27,8 @@ class Database {
     contacts: [],
     invitations: {},
     messages: [],
-    handshakes: {}
+    handshakes: {},
+    pushSubscriptions: {}
   };
 
   private mongoClient: MongoClient | null = null;
@@ -53,6 +55,9 @@ class Database {
         this.data = JSON.parse(raw);
         if (!this.data.handshakes) {
           this.data.handshakes = {};
+        }
+        if (!this.data.pushSubscriptions) {
+          this.data.pushSubscriptions = {};
         }
       } catch (err) {
         console.error('Failed to parse database file, initializing empty state:', err);
@@ -93,6 +98,7 @@ class Database {
         // Merge cloud with local state seamlessly so no newly created user is lost
         this.data.users = { ...this.data.users, ...(remoteData.users || {}) };
         this.data.handshakes = { ...(this.data.handshakes || {}), ...(remoteData.handshakes || {}) };
+        this.data.pushSubscriptions = { ...(this.data.pushSubscriptions || {}), ...(remoteData.pushSubscriptions || {}) };
         
         // Contacts deduplication
         const allContacts = [...(this.data.contacts || []), ...(remoteData.contacts || [])];
@@ -663,6 +669,31 @@ class Database {
     this.data.messages = remaining;
     this.save();
     return { success: true, mode: 'for_everyone', deletedCount: deletedIds.length, deletedIds };
+  }
+
+  savePushSubscription(userId: string, subscription: any) {
+    if (!this.data.pushSubscriptions) {
+      this.data.pushSubscriptions = {};
+    }
+    const list = this.data.pushSubscriptions[userId] || [];
+    const existingIdx = list.findIndex((s: any) => s.endpoint === subscription.endpoint);
+    if (existingIdx >= 0) {
+      list[existingIdx] = { ...subscription, updatedAt: new Date().toISOString() };
+    } else {
+      list.push({ ...subscription, updatedAt: new Date().toISOString() });
+    }
+    this.data.pushSubscriptions[userId] = list;
+    this.save();
+  }
+
+  getPushSubscriptions(userId: string): any[] {
+    return (this.data.pushSubscriptions && this.data.pushSubscriptions[userId]) || [];
+  }
+
+  removePushSubscription(userId: string, endpoint: string) {
+    if (!this.data.pushSubscriptions || !this.data.pushSubscriptions[userId]) return;
+    this.data.pushSubscriptions[userId] = this.data.pushSubscriptions[userId].filter((s: any) => s.endpoint !== endpoint);
+    this.save();
   }
 }
 

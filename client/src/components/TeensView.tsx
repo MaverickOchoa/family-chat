@@ -221,29 +221,46 @@ export const TeensView: React.FC<TeensViewProps> = ({
                     : 'hover:bg-slate-800/60 text-slate-300'
                 }`}
               >
-                <img src={contact.avatar} alt="" className="w-11 h-11 rounded-full border border-slate-700 bg-slate-800" />
+                <div className="relative flex-shrink-0">
+                  <img src={contact.avatar} alt="" className="w-11 h-11 rounded-full border border-slate-700 bg-slate-800" />
+                  {(() => {
+                    const unreadCount = (allMessages || messages).filter(
+                      (m) => m && m.fromUserId === contact.id && m.toUserId === currentUser.id && m.status !== 'read'
+                    ).length;
+                    return unreadCount > 0 ? (
+                      <span
+                        className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[10px] font-black rounded-full min-w-[20px] h-5 px-1 flex items-center justify-center border-2 border-slate-900 shadow-lg animate-pulse z-10"
+                        title={`${unreadCount} mensajes sin leer`}
+                      >
+                        {unreadCount > 99 ? '99+' : unreadCount}
+                      </span>
+                    ) : null;
+                  })()}
+                </div>
                 <div className="text-left flex-1 min-w-0">
                   <div className="font-semibold text-sm truncate flex items-center justify-between">
-                    <span>{contact.username}</span>
-                    {contact.environment === 'church' && (
-                      <span className="text-[9px] bg-purple-950 text-purple-300 border border-purple-800/60 px-1.5 py-0.2 rounded-full font-bold">
-                        ⛪ Iglesia
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-xs text-slate-500 truncate flex items-center justify-between">
-                    <span>Canal seguro verificado</span>
-                    {(() => {
-                      const unreadSource = allMessages || messages;
-                      const unread = unreadSource.filter(
-                        (m) => m && m.fromUserId === contact.id && m.toUserId === currentUser.id && m.status !== 'read'
-                      ).length;
-                      return unread > 0 ? (
-                        <span className="px-2 py-0.5 rounded-full bg-cyan-600 text-white text-[10px] font-bold shadow-md animate-pulse">
-                          {unread}
+                    <span className="truncate">{contact.username}</span>
+                    <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                      {(() => {
+                        const unreadCount = (allMessages || messages).filter(
+                          (m) => m && m.fromUserId === contact.id && m.toUserId === currentUser.id && m.status !== 'read'
+                        ).length;
+                        return unreadCount > 0 ? (
+                          <span className="bg-red-500/20 text-red-400 border border-red-500/40 text-[10px] font-black px-2 py-0.5 rounded-full shadow-sm flex items-center gap-1 animate-pulse">
+                            <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block" />
+                            {unreadCount} {unreadCount === 1 ? 'nuevo' : 'nuevos'}
+                          </span>
+                        ) : null;
+                      })()}
+                      {contact.environment === 'church' && (
+                        <span className="text-[9px] bg-purple-950 text-purple-300 border border-purple-800/60 px-1.5 py-0.2 rounded-full font-bold">
+                          ⛪ Iglesia
                         </span>
-                      ) : null;
-                    })()}
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-xs text-slate-500 truncate flex items-center justify-between mt-0.5">
+                    <span>Canal seguro verificado</span>
                   </div>
                 </div>
               </button>
@@ -269,8 +286,22 @@ export const TeensView: React.FC<TeensViewProps> = ({
             {/* Header */}
             <div className="px-4 py-3 border-b border-slate-800/80 bg-slate-900/40 flex items-center justify-between flex-shrink-0">
               <div className="flex items-center gap-3">
-                <button onClick={onBackToContacts} className="md:hidden p-1.5 rounded-lg text-slate-400 hover:text-white">
+                <button
+                  onClick={onBackToContacts}
+                  className="md:hidden p-1.5 rounded-lg text-slate-400 hover:text-white flex items-center gap-1"
+                  title="Volver a los contactos"
+                >
                   <ArrowLeft className="w-5 h-5" />
+                  {(() => {
+                    const otherUnread = (allMessages || messages).filter(
+                      (m) => m && m.toUserId === currentUser.id && m.fromUserId !== activeContact.id && m.status !== 'read'
+                    ).length;
+                    return otherUnread > 0 ? (
+                      <span className="bg-red-600 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full shadow animate-pulse">
+                        {otherUnread}
+                      </span>
+                    ) : null;
+                  })()}
                 </button>
                 <img src={activeContact.avatar} alt="" className="w-9 h-9 rounded-full border border-slate-700" />
                 <div>

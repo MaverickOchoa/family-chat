@@ -271,6 +271,16 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
             }`}
           >
             <Users className="w-3.5 h-3.5" /> Chats Familiares
+            {(() => {
+              const totalUnread = (allMessages || messages).filter(
+                (m) => m && m.toUserId === currentUser.id && m.status !== 'read'
+              ).length;
+              return totalUnread > 0 ? (
+                <span className="bg-red-500 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full shadow animate-pulse">
+                  {totalUnread}
+                </span>
+              ) : null;
+            })()}
           </button>
 
           {currentUser.role === 'guardian' && (
@@ -420,11 +430,35 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
                           title="En línea en la app"
                         />
                       )}
+                      {(() => {
+                        const unreadCount = (allMessages || messages).filter(
+                          (m) => m && m.fromUserId === contact.id && m.toUserId === currentUser.id && m.status !== 'read'
+                        ).length;
+                        return unreadCount > 0 ? (
+                          <span
+                            className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[10px] font-black rounded-full min-w-[20px] h-5 px-1 flex items-center justify-center border-2 border-slate-900 shadow-lg animate-pulse z-10"
+                            title={`${unreadCount} mensajes sin leer`}
+                          >
+                            {unreadCount > 99 ? '99+' : unreadCount}
+                          </span>
+                        ) : null;
+                      })()}
                     </div>
                     <div className="text-left flex-1 min-w-0">
                       <div className="font-semibold text-sm truncate flex items-center justify-between">
-                        <span className="text-white">{contact.username}</span>
-                        <div className="flex items-center gap-1">
+                        <span className="text-white truncate">{contact.username}</span>
+                        <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                          {(() => {
+                            const unreadCount = (allMessages || messages).filter(
+                              (m) => m && m.fromUserId === contact.id && m.toUserId === currentUser.id && m.status !== 'read'
+                            ).length;
+                            return unreadCount > 0 ? (
+                              <span className="bg-red-500/20 text-red-400 border border-red-500/40 text-[10px] font-black px-2 py-0.5 rounded-full shadow-sm flex items-center gap-1 animate-pulse">
+                                <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block" />
+                                {unreadCount} {unreadCount === 1 ? 'nuevo' : 'nuevos'}
+                              </span>
+                            ) : null;
+                          })()}
                           {contact.environment === 'church' && (
                             <span className="text-[9px] bg-purple-950 text-purple-300 border border-purple-800/60 px-1.5 py-0.2 rounded-full font-bold">
                               ⛪ Iglesia
@@ -450,18 +484,6 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
                             <span className="w-1.5 h-1.5 rounded-full bg-slate-600 inline-block" /> Canal seguro
                           </span>
                         )}
-
-                        {(() => {
-                          const unreadSource = allMessages || messages;
-                          const unreadCount = unreadSource.filter(
-                            (m) => m && m.fromUserId === contact.id && m.toUserId === currentUser.id && m.status !== 'read'
-                          ).length;
-                          return unreadCount > 0 ? (
-                            <span className="px-2 py-0.5 rounded-full bg-indigo-600 text-white text-[10px] font-bold shadow-md flex-shrink-0 animate-pulse">
-                              {unreadCount}
-                            </span>
-                          ) : null;
-                        })()}
                       </div>
                     </div>
                   </button>
@@ -624,9 +646,20 @@ export const AdultsView: React.FC<AdultsViewProps> = ({
               <div className="flex items-center gap-3">
                 <button
                   onClick={onBackToContacts}
-                  className="md:hidden p-1.5 rounded-lg text-slate-400 hover:text-white bg-slate-800"
+                  className="md:hidden p-1.5 rounded-lg text-slate-400 hover:text-white bg-slate-800 flex items-center gap-1"
+                  title="Volver a los contactos"
                 >
                   <ArrowLeft className="w-5 h-5" />
+                  {(() => {
+                    const otherUnread = (allMessages || messages).filter(
+                      (m) => m && m.toUserId === currentUser.id && m.fromUserId !== activeContact.id && m.status !== 'read'
+                    ).length;
+                    return otherUnread > 0 ? (
+                      <span className="bg-red-600 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full shadow animate-pulse">
+                        {otherUnread}
+                      </span>
+                    ) : null;
+                  })()}
                 </button>
                 <div className="relative">
                   <img

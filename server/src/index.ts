@@ -6,11 +6,24 @@ import cors from 'cors';
 import { WebSocketServer, WebSocket } from 'ws';
 import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
+import webpush from 'web-push';
 import { db, STORAGE_DIR } from './db.js';
 import type { UserProfile, UserRole, WSClientMessage, EncryptedMessagePacket, PairingInvitation, GuardianHandshakeRequest } from './types.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Web Push (VAPID) Configuration for instant wake-up notifications
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || 'BKe8thc5iN2Ek_5iUMqfBlyuFYtLQXXL_Q20J3pEpxzTXVowpICgi3Jrp31d6YIiGVF528dtYW9wRUOIaC2CNCo';
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || 'eeIFyATROvEcA0iawSEQLiJBLrPjZL-O6PvpbX3Kcfs';
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@familychat.app';
+
+try {
+  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+  console.log('✅ Web Push (VAPID) configurado correctamente para notificaciones en segundo plano.');
+} catch (err) {
+  console.error('Error al configurar VAPID webpush:', err);
+}
 
 // CORS setup
 app.use(cors({ origin: '*' }));
@@ -557,7 +570,143 @@ app.post('/api/messages/send', (req, res) => {
     }
   }
 
+  // Trigger real-time Web Push notification to wake the recipient device
+  sendPushNotificationForMessage(packet);
+
   return res.json({ success: true, messageId: packet.id });
+});
+
+// Helper to deliver instantaneous Web Push notification (wakes sleeping phones)
+async function sendPushNotificationForMessage(packet: EncryptedMessagePacket) {
+  try {
+    const sender = db.getUser(packet.fromUserId);
+    const recipient = db.getUser(packet.toUserId);
+    if (!recipient) return;
+
+    // Calculate unread count for recipient across all their chats
+    const allUserMessages = db.getMessagesForUser(packet.toUserId);
+    const unreadCount = allUserMessages.filter(m => 
+      m.toUserId === packet.toUserId && 
+      m.status !== 'read' && 
+      !(m.hiddenForUserIds || []).includes(packet.toUserId)
+    ).length + 1;
+
+    let bodyText = 'Nuevo mensaje cifrado';
+    if (packet.type === 'image') {
+      bodyText = '📷 Foto familiar recibida';
+    } else if (packet.type === 'audio') {
+      bodyText = '🎤 Nota de voz familiar recibida';
+    } else {
+      bodyText = '💬 Nuevo mensaje recibido';
+    }
+
+    const payload = JSON.stringify({
+      title: `${sender ? sender.username : 'Familiar'} en FamilyChat`,
+      body: bodyText,
+      icon: sender?.avatar || '/favicon.svg',
+      badge: '/favicon.svg',
+      tag: `chat-${packet.fromUserId}`,
+      contactId: packet.fromUserId,
+      unreadCount
+    });
+
+    const subscriptions = db.getPushSubscriptions(packet.toUserId);
+    for (const sub of subscriptions) {
+      webpush.sendNotification(sub, payload).catch((err: any) => {
+        if (err.statusCode === 404 || err.statusCode === 410) {
+          db.removePushSubscription(packet.toUserId, sub.endpoint);
+        }
+      });
+    }
+
+    // Also notify mirror guardians if sender or recipient is kid < 10
+    const mirrorGuardians = new Set<string>();
+    if (sender?.role === 'kid' && sender.age && sender.age < 10 && sender.guardianId) {
+      mirrorGuardians.add(sender.guardianId);
+    }
+    if (recipient?.role === 'kid' && recipient.age && recipient.age < 10 && recipient.guardianId) {
+      mirrorGuardians.add(recipient.guardianId);
+    }
+
+    for (const gId of mirrorGuardians) {
+      if (gId !== packet.fromUserId) {
+        const gSubs = db.getPushSubscriptions(gId);
+        if (gSubs.length > 0) {
+          const mirrorPayload = JSON.stringify({
+            title: `Supervisión Familiar • FamilyChat`,
+            body: `Nuevo mensaje en el chat supervisado de @${sender?.username || 'menor'}`,
+            icon: '/favicon.svg',
+            badge: '/favicon.svg',
+            tag: `mirror-${packet.id}`,
+            contactId: packet.toUserId,
+            unreadCount: 1
+          });
+          for (const sub of gSubs) {
+            webpush.sendNotification(sub, mirrorPayload).catch((err: any) => {
+              if (err.statusCode === 404 || err.statusCode === 410) {
+                db.removePushSubscription(gId, sub.endpoint);
+              }
+            });
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Error in sendPushNotificationForMessage:', e);
+  }
+}
+
+// --- PUSH NOTIFICATION (VAPID) ENDPOINTS ---
+app.get('/api/push/vapid-public-key', (_req, res) => {
+  res.json({ publicKey: VAPID_PUBLIC_KEY });
+});
+
+app.post('/api/push/subscribe', (req, res) => {
+  const { userId, subscription } = req.body;
+  if (!userId || !subscription || !subscription.endpoint) {
+    return res.status(400).json({ error: 'userId and valid subscription are required.' });
+  }
+  db.savePushSubscription(userId, subscription);
+  console.log(`📱 Suscripción Push guardada para usuario ${userId}: ${subscription.endpoint.slice(0, 45)}...`);
+  return res.json({ success: true });
+});
+
+app.post('/api/push/unsubscribe', (req, res) => {
+  const { userId, endpoint } = req.body;
+  if (!userId || !endpoint) {
+    return res.status(400).json({ error: 'userId and endpoint are required.' });
+  }
+  db.removePushSubscription(userId, endpoint);
+  return res.json({ success: true });
+});
+
+app.post('/api/push/test', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: 'userId is required.' });
+  const subs = db.getPushSubscriptions(userId);
+  if (subs.length === 0) {
+    return res.status(404).json({ error: 'No se encontraron suscripciones push para este usuario.' });
+  }
+  const payload = JSON.stringify({
+    title: '🔔 FamilyChat • Notificación de Prueba',
+    body: '¡Excelente! Las notificaciones Push instantáneas están activas en tu teléfono.',
+    icon: '/favicon.svg',
+    badge: '/favicon.svg',
+    tag: 'test-push',
+    unreadCount: 1
+  });
+  let sent = 0;
+  for (const sub of subs) {
+    try {
+      await webpush.sendNotification(sub, payload);
+      sent++;
+    } catch (err: any) {
+      if (err.statusCode === 404 || err.statusCode === 410) {
+        db.removePushSubscription(userId, sub.endpoint);
+      }
+    }
+  }
+  return res.json({ success: true, sentCount: sent });
 });
 
 // 10. Delete Message (Supports 'for_me' and 'for_everyone')
@@ -802,6 +951,9 @@ wss.on('connection', (ws) => {
               });
             }
           }
+
+          // Trigger real-time Web Push notification to wake recipient device
+          sendPushNotificationForMessage(packet);
 
           // 3. ACK back to sender
           ws.send(JSON.stringify({

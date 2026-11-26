@@ -22,7 +22,7 @@ import {
   Plus
 } from 'lucide-react';
 import { API_BASE } from '../config';
-import { triggerDeviceNotification } from '../utils/notifications';
+import { triggerDeviceNotification, subscribeToPushNotifications } from '../utils/notifications';
 
 interface CustomEnvironment {
   id: string;
@@ -160,8 +160,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       const permission = await Notification.requestPermission();
       setNotificationStatus(permission);
       if (permission === 'granted') {
+        if (currentUser?.id) {
+          await subscribeToPushNotifications(currentUser.id, API_BASE);
+        }
         triggerDeviceNotification('🔔 FamilyChat Conectado', {
-          body: '¡Notificaciones familiares activas! Recibirás avisos de nuevos mensajes y fotos.',
+          body: '¡Notificaciones familiares activas! Recibirás avisos de nuevos mensajes y fotos al instante.',
           icon: '/favicon.svg'
         });
       }
@@ -170,12 +173,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
-  const handleSendTestNotification = () => {
+  const handleSendTestNotification = async () => {
     if (Notification.permission === 'granted') {
       triggerDeviceNotification('👨‍👩‍👧‍👦 Mensaje Familiar de Prueba', {
         body: 'El canal cifrado de notificaciones funciona a la perfección.',
         icon: '/favicon.svg'
       });
+
+      // Also trigger server Web Push test to verify real-time mobile push
+      if (currentUser?.id) {
+        try {
+          await fetch(`${API_BASE}/api/push/test`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: currentUser.id })
+          });
+        } catch (e) {}
+      }
     }
   };
 

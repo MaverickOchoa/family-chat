@@ -21,7 +21,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { AvatarCropperModal } from './components/AvatarCropperModal';
 import { Shield, Camera, Lock, User, Upload, Mail } from 'lucide-react';
 import { API_BASE, WS_BASE } from './config';
-import { triggerDeviceNotification, updateAppBadge } from './utils/notifications';
+import { triggerDeviceNotification, updateAppBadge, subscribeToPushNotifications } from './utils/notifications';
 
 // Universal UUID generator that works in any context (HTTP, LAN IP, older mobile browsers)
 function safeUUID(): string {
@@ -149,6 +149,11 @@ export function App() {
     fetchMessages();
     if (currentUser?.role === 'guardian') {
       fetchHandshakes();
+    }
+
+    // Auto-subscribe to Web Push notifications for real-time mobile push
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      subscribeToPushNotifications(currentUser.id, API_BASE);
     }
 
     // Auto-refresh messages and contacts periodically in case WebSocket reconnects
@@ -1578,14 +1583,16 @@ export function App() {
           title={pinModalTitle}
           description={pinModalDesc}
         />
-        <SettingsModal
-          isOpen={showSettingsModal}
-          onClose={() => setShowSettingsModal(false)}
-          currentUser={currentUser}
-          currentEnvironment={currentEnvironment}
-          onSelectEnvironment={(env) => setCurrentEnvironment(env)}
-          onLogout={handleLogout}
-        />
+        {showSettingsModal && (
+          <SettingsModal
+            isOpen={showSettingsModal}
+            onClose={() => setShowSettingsModal(false)}
+            currentUser={currentUser}
+            currentEnvironment={currentEnvironment}
+            onSelectEnvironment={(env) => setCurrentEnvironment(env)}
+            onLogout={handleLogout}
+          />
+        )}
       </>
     );
   }
@@ -1638,14 +1645,16 @@ export function App() {
           title={pinModalTitle}
           description={pinModalDesc}
         />
-        <SettingsModal
-          isOpen={showSettingsModal}
-          onClose={() => setShowSettingsModal(false)}
-          currentUser={currentUser}
-          currentEnvironment={currentEnvironment}
-          onSelectEnvironment={(env) => setCurrentEnvironment(env)}
-          onLogout={handleLogout}
-        />
+        {showSettingsModal && (
+          <SettingsModal
+            isOpen={showSettingsModal}
+            onClose={() => setShowSettingsModal(false)}
+            currentUser={currentUser}
+            currentEnvironment={currentEnvironment}
+            onSelectEnvironment={(env) => setCurrentEnvironment(env)}
+            onLogout={handleLogout}
+          />
+        )}
       </>
     );
   }
@@ -1706,14 +1715,16 @@ export function App() {
         description={pinModalDesc}
       />
 
-      <SettingsModal
-        isOpen={showSettingsModal}
-        onClose={() => setShowSettingsModal(false)}
-        currentUser={currentUser}
-        currentEnvironment={currentEnvironment}
-        onSelectEnvironment={(env) => setCurrentEnvironment(env)}
-        onLogout={handleLogout}
-      />
+      {showSettingsModal && (
+        <SettingsModal
+          isOpen={showSettingsModal}
+          onClose={() => setShowSettingsModal(false)}
+          currentUser={currentUser}
+          currentEnvironment={currentEnvironment}
+          onSelectEnvironment={(env) => setCurrentEnvironment(env)}
+          onLogout={handleLogout}
+        />
+      )}
     </>
   );
 }

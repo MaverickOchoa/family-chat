@@ -68,3 +68,55 @@ export function updateAppBadge(unreadCount: number) {
     document.title = 'FamilyChat - Bóveda y Mensajería Familiar';
   }
 }
+
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+/**
+ * Registers Web Push subscription with the server so background push notifications
+ * wake up the phone in real time even when screen is locked or browser is closed.
+ */
+export async function subscribeToPushNotifications(userId: string, apiBase: string) {
+  if (typeof window === 'undefined') return false;
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return false;
+
+  try {
+    if (Notification.permission !== 'granted') return false;
+
+    const res = await fetch(`${apiBase}/api/push/vapid-public-key`);
+    if (!res.ok) return false;
+    const { publicKey } = await res.json();
+    if (!publicKey) return false;
+
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+
+    if (!sub) {
+      const convertedKey = urlBase64ToUint8Array(publicKey);
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: convertedKey
+      });
+    }
+
+    await fetch(`${apiBase}/api/push/subscribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, subscription: sub })
+    });
+
+    console.log('✅ Dispositivo suscrito a Web Push en segundo plano.');
+    return true;
+  } catch (err) {
+    console.warn('Error subscribing to push notifications:', err);
+    return false;
+  }
+}
